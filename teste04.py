@@ -1,7 +1,8 @@
 import cv2
-import mediapipe as mp
 import numpy as np
 import argparse
+
+total = 0
 
 # Função para listar todos os dispositivos de vídeo disponíveis
 def list_video_devices():
@@ -37,7 +38,6 @@ def setup():
     else:
         return args.index if args.index is not None else 0, args.max_value
 
-
 def filtra_verde(frame, maxima):
     # Criar uma cópia da imagem original para aplicar as mudanças
     filtered_image = frame.copy()
@@ -50,7 +50,6 @@ def filtra_verde(frame, maxima):
 
     return filtered_image
 
-
 def loop(index, max_value):
     print(f"max_value:{max_value}")
     # Inicializar a captura de vídeo
@@ -59,9 +58,10 @@ def loop(index, max_value):
         print(f"Erro ao abrir a câmera com índice {index}")
         return
 
+    global total
+
     while True:
         ret, frame = cap.read()
-
         if not ret:
             break
 
@@ -77,36 +77,55 @@ def loop(index, max_value):
             gray_blurred,
             cv2.HOUGH_GRADIENT,
             dp=1,
-            minDist=50,
-            param1=50,
-            param2=30,
-            minRadius=10,
-            maxRadius=100
+            minDist=10,
+            param1=20,
+            param2=20,
+            minRadius=15,
+            maxRadius=35
         )
 
+        total_circulos = 0
         # Se círculos forem detectados, desenhá-los na imagem
         if circles is not None:
             circles = np.uint16(np.around(circles))
+            total_circulos = len(circles[0])
+
             for circle in circles[0, :]:
                 center = (circle[0], circle[1])
                 radius = circle[2]
-                cv2.circle(filtered_image, center, radius, (0, 255, 0), 2)
+                cv2.circle(gray_blurred, center, radius, (0, 255, 0), 2)
+                cv2.circle(frame, center, radius, (0, 255, 0), 2)
+
+        if total < total_circulos:
+            total = total_circulos
+
+        # Escrever a legenda
+        texto = f"(C)lear"
+        cv2.putText(frame, texto, (frame.shape[1]-80, 80), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 255, 0), 2)
+
+        # Escrever o total de círculos na imagem original
+        texto = f"Total de hemacias: {total}"
+        cv2.putText(frame, texto, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 255, 0), 2)
 
         # Mostrar a imagem com círculos detectados
         cv2.imshow('Original', frame)
-        cv2.imshow('Filtered Image', filtered_image)
-        cv2.imshow('Detected Circles', gray)
 
-        # Sair do loop quando a tecla 'q' for pressionada
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Verificar pressionamento de teclas
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
+        elif key == ord('c'):
+            total = 0
 
     # Liberar a captura de vídeo e fechar janelas
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    index, max_value = setup()
-    if index is not None:
+    setup_result = setup()
+    if setup_result is not None:
+        index, max_value = setup_result
         loop(index, max_value)
 

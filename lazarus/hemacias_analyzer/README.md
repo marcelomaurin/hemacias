@@ -119,3 +119,52 @@ x:y|x:y|x:y|...
 ```
 
 O analisador desenha esse polígono. Quando não há máscara, mantém o fallback para bounding box.
+
+
+## Múltiplos campos e qualidade
+
+O desktop agora suporta uma amostra formada por vários campos microscópicos.
+
+Para cada campo:
+
+1. carregue a imagem;
+2. o aplicativo calcula a qualidade da imagem;
+3. execute a detecção;
+4. envie o campo ao servidor;
+5. clique em **Novo campo** para continuar.
+
+O controle de qualidade usa os mesmos critérios do módulo Python:
+
+- variância do Laplaciano para foco;
+- brilho médio;
+- fração de sombras;
+- fração de realces;
+- coeficiente de variação da iluminação em grade 3×3.
+
+Os estados são:
+
+```text
+ACEITA
+REVISAR
+REJEITADA
+```
+
+Campos rejeitados podem ser enviados ao servidor para manter o histórico, porém não entram na consolidação.
+
+## Relatório da amostra
+
+O botão **Relatório amostra** consulta o endpoint `sample_summary` e apresenta:
+
+- campos totais;
+- campos válidos;
+- rejeitados/excluídos;
+- campos para revisão;
+- mínimo total exigido pelo protocolo;
+- mínimo de campos válidos;
+- média;
+- mediana;
+- mínimo;
+- máximo;
+- desvio padrão amostral por componente.
+
+Quando o relatório da amostra está sendo exibido, **Emitir resultado** gera um arquivo TXT consolidado. Para um campo individual, continua sendo possível emitir JSON, CSV ou TXT.

@@ -586,7 +586,7 @@ begin
   LocalPath := ObjStr(Proto, 'model_path', '');
   if LocalPath <> '' then
   begin
-    if (not FilenameIsAbsolute(LocalPath)) and
+    if (not FileExists(LocalPath)) and
        FileExists(ExtractFilePath(ParamStr(0)) + LocalPath) then
       LocalPath := ExtractFilePath(ParamStr(0)) + LocalPath;
     FEdModel.Text := LocalPath;
@@ -980,21 +980,26 @@ function TfrmMain.BuildCountPayload: TJSONObject;
 var
   Components, Dets: TJSONArray;
   Comp, Det, Meta: TJSONObject;
-  I, J: Integer;
+  I, J, AcceptedTotal: Integer;
   Avg: Double;
   Code: string;
 begin
+  AcceptedTotal := 0;
+  for I := 0 to High(FSummaries) do
+    Inc(AcceptedTotal, FSummaries[I].Count);
+
   Result := TJSONObject.Create;
   Result.Add('sample_id', FSampleID);
   Result.Add('method', 'yolo-seg-lazarus');
-  Result.Add('algorithm_version', '1.0-lazarus');
+  Result.Add('algorithm_version', '1.1-lazarus');
+  Result.Add('source_client', 'LAZARUS');
   if FModelID > 0 then Result.Add('model_id', FModelID);
   if FModelSHA256 <> '' then Result.Add('model_sha256', FModelSHA256);
   Result.Add('model_path', FYolo.ModelPath);
   if FScaleLabel <> '' then Result.Add('scale_label', FScaleLabel);
   if FMagnification > 0 then Result.Add('magnification', FMagnification);
   Result.Add('image_quality', 'REVISAR');
-  Result.Add('total_cells', Length(FObjects));
+  Result.Add('total_cells', AcceptedTotal);
   Result.Add('notes', 'Campo enviado pelo Hemácias Analyzer Lazarus.');
 
   Components := TJSONArray.Create;

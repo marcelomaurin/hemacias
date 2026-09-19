@@ -1,150 +1,112 @@
+"""Experimento legado de pré-processamento.
+
+Mantido para comparação com o algoritmo original. A captura e a liberação
+da câmera foram corrigidas; para uso normal prefira teste04.py.
+"""
+
+from __future__ import annotations
+
+import argparse
 import cv2
 import numpy as np
 
-# Função para exibir a imagem da câmera
-def show_camera_image():
-    # Inicializar a captura de vídeo
-    cap = cv2.VideoCapture(1)  # 0 representa a câmera padrão, pode ser alterado se você tiver várias câmeras
-    # Capturar o próximo quadro
-    ret, frame = cap.read()    
-    return frame
-    
-def redefine(imagem):
-    # Definir o tamanho desejado para a janela e a imagem
-    window_width = 600
-    window_height = 400
-    # Redimensionar a imagem para o tamanho desejado
-    imginv = cv2.resize(imagem, (window_width, window_height))
-    return imginv    
-    
-def MostraImg(texto, imagem):
-    #imagem redimensionada
-    rimagem = redefine(imagem)
-    # Exibir o quadro capturado
-    cv2.imshow(texto, rimagem)
-    
-    
-def Esperar():    
+from hemacias.camera import open_camera
+
+
+def redefine(image: np.ndarray, width: int = 600, height: int = 400) -> np.ndarray:
+    return cv2.resize(image, (width, height))
+
+
+def show_image(title: str, image: np.ndarray) -> None:
+    cv2.imshow(title, redefine(image))
+
+
+def wait_for_quit() -> None:
     while True:
-        # Pressione 'q' para sair do loop
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if cv2.waitKey(20) & 0xFF == ord("q"):
             break
-            
-def MascaraInvertida(imagem):
-    # Aplicar o limite para definir os valores verdadeiros
-    binary_image = cv2.inRange(imagem, 55, 255)
-    # Converter a imagem binária em escala de cinza
-    grayscale_image = cv2.cvtColor(binary_image, cv2.COLOR_GRAY2BGR)
-    return grayscale_image
-    
-    
- 
-def Fundobranco(imagem_colorida):
-    # Converter a imagem colorida para escala de cinza
-    imagem_cinza = cv2.cvtColor(imagem_colorida, cv2.COLOR_BGR2GRAY)
-    # Aplicar uma operação de limiarização para obter a imagem binária
-    _, imagem_binaria = cv2.threshold(imagem_cinza, 127, 255, cv2.THRESH_BINARY)
-        # Criar uma máscara binária onde os pontos diferentes são definidos como branco
- 
-    # Encontrar os contornos na imagem binária
-    contornos, _ = cv2.findContours(imagem_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Criar uma máscara preenchida com branco
-    mascara = np.ones_like(imagem_colorida) * 255
-    
-    # Preencher os contornos com a cor preta na máscara
-    cv2.drawContours(mascara, contornos, -1, 0, thickness=cv2.FILLED)
-    
-    # Aplicar a máscara na imagem original
-    imagem_fundobranco = cv2.bitwise_and(imagem_colorida, mascara)
-    
-    return imagem_fundobranco    
- 
- 
-def Preencher(image):
-    # Converter a imagem binária em escala de cinza
-    grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    threshold = 240  # Limite de limiarização para definir os pontos pontilhados
-    # Aplicar uma operação de limiarização para obter a imagem binária
-    _, binary_image = cv2.threshold(grayscale_image, threshold, 255, cv2.THRESH_BINARY)
-    # Encontrar os contornos na imagem binária
-    contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # Criar uma máscara para o preenchimento
-    mask = np.zeros_like(grayscale_image)
-    # Preencher os contornos com a cor branca
+
+
+def mascara_invertida(image: np.ndarray) -> np.ndarray:
+    binary = cv2.inRange(image, 55, 255)
+    return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+
+
+def fundo_branco(image: np.ndarray) -> np.ndarray:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    mask = np.full_like(image, 255)
+    cv2.drawContours(mask, contours, -1, 0, thickness=cv2.FILLED)
+    return cv2.bitwise_and(image, mask)
+
+
+def preencher(image: np.ndarray) -> np.ndarray:
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    mask = np.zeros_like(gray)
     cv2.drawContours(mask, contours, -1, 255, thickness=cv2.FILLED)
-
-    # Aplicar a máscara na imagem original para preencher a área pontilhada
-    filled_image = cv2.bitwise_and(grayscale_image, mask)
-    
-    return filled_image
-    
-def encontrar_contornos(imagem):
-    # Converter a imagem em escala de cinza
-    imagem_cinza = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-    
-    # Aplicar uma operação de limiarização para obter a imagem binária
-    _, imagem_binaria = cv2.threshold(imagem_cinza, 127, 255, cv2.THRESH_BINARY)
-    
-    # Encontrar os contornos na imagem binária
-    contornos, _ = cv2.findContours(imagem_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    return contornos
-    
+    return cv2.bitwise_and(gray, mask)
 
 
-def ImagemMascara(imagem_colorida, imagem_cinza):
-    # Converter a imagem colorida para escala de cinza
-    imagem_colorida_cinza = cv2.cvtColor(imagem_colorida, cv2.COLOR_BGR2GRAY)
-    
-    # Aplicar uma operação de diferença entre as imagens em escala de cinza
-    diferenca = cv2.absdiff(imagem_colorida_cinza, imagem_cinza)
-    
-    # Criar uma máscara binária onde os pontos diferentes são definidos como branco
-    _, mascara_binaria = cv2.threshold(diferenca, 128, 255, cv2.THRESH_BINARY)
-    
-    # Criar uma imagem em branco do mesmo tamanho da imagem colorida
-    imagem_mascara = np.zeros_like(imagem_colorida)
-    
-    # Preencher os pontos da imagem colorida comuns à imagem cinza
-    imagem_mascara[mascara_binaria != 255] = imagem_colorida[mascara_binaria != 255]
+def imagem_mascara(color_image: np.ndarray, gray_image: np.ndarray) -> np.ndarray:
+    color_gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+    difference = cv2.absdiff(color_gray, gray_image)
+    _, binary_mask = cv2.threshold(difference, 128, 255, cv2.THRESH_BINARY)
 
-    
-    return imagem_mascara
-    
+    output = np.zeros_like(color_image)
+    output[binary_mask != 255] = color_image[binary_mask != 255]
+    return output
 
 
+def encontrar_contornos(image: np.ndarray):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return contours
 
 
-def Fechar():
-    # Liberar os recursos
-    cap.release()
-    cv2.destroyAllWindows()
-     
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Experimento legado de processamento.")
+    parser.add_argument("--index", type=int, default=0, help="Índice da câmera.")
+    args = parser.parse_args()
 
-# Início do código
-imagem = show_camera_image()
+    try:
+        cap = open_camera(args.index)
+    except RuntimeError as exc:
+        print(f"Erro: {exc}")
+        return 1
 
-# Inicio de codigo
-imagem = show_camera_image()
+    try:
+        ok, image = cap.read()
+        if not ok:
+            print("Não foi possível capturar uma imagem.")
+            return 2
 
-# Separar os canais de cor da imagem
-blue, green, red = cv2.split(imagem)
+        blue, _, _ = cv2.split(image)
+        mask = mascara_invertida(blue)
+        filled_mask = preencher(mask)
 
-mascara = MascaraInvertida(blue)
-#pmascara = Preencher(mascara)
-pmascara = Preencher(mascara)
+        image2 = imagem_mascara(image, filled_mask)
+        image3 = fundo_branco(image2)
 
-imagem2 = ImagemMascara(imagem,pmascara)
-imagem3 = Fundobranco(imagem2)
+        contours = encontrar_contornos(image2)
+        output = image.copy()
+        cv2.drawContours(output, contours, -1, (0, 255, 0), 2)
 
-contornos = encontrar_contornos(imagem2)
+        show_image("Mascara", image3)
+        show_image("Imagem", output)
+        print("Pressione q para sair.")
+        wait_for_quit()
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
-# Desenhar os contornos na imagem original
-cv2.drawContours(imagem, contornos, -1, (0, 255, 0), 2)
+    return 0
 
 
-MostraImg('invertida',imagem3)
-MostraImg('imagem',imagem)
-
-Esperar()
+if __name__ == "__main__":
+    raise SystemExit(main())

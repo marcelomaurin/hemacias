@@ -37,7 +37,7 @@ def parse_args():
                         help="Foco mínimo aceito antes de contar.")
     parser.add_argument("--method", choices=("hough", "watershed", "yolo"), default="watershed",
                         help="Método de detecção (hough, watershed ou yolo).")
-    parser.add_argument("--model", help="Arquivo .pt treinado, obrigatório para --method yolo.")
+    parser.add_argument("--model", help="Override do arquivo .pt; se omitido usa o modelo do protocolo.")
     parser.add_argument("--confidence", type=float, default=0.25, help="Confiança mínima do YOLO.")
     parser.add_argument("--iou", type=float, default=0.70, help="IoU usado pelo YOLO.")
     parser.add_argument("--min-circularity", type=float, default=0.30,
@@ -230,6 +230,10 @@ def main() -> int:
                 selected_path,
                 confidence=args.confidence,
                 iou=args.iou,
+                imgsz=(
+                    int(model_registry.get("imgsz"))
+                    if model_registry and model_registry.get("imgsz") else None
+                ),
                 min_focus_score=args.focus,
                 history_size=args.history,
             )

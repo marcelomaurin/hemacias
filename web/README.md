@@ -107,3 +107,60 @@ web/migrations/002_annotations.sql
 Instalações novas já recebem essas tabelas por `schema.sql`.
 
 As tabelas `image_annotations` e `annotation_revisions` registram os polígonos revisados, usuário e histórico da revisão.
+
+
+## Gerenciador de dataset
+
+Acesse:
+
+```text
+dataset.php
+```
+
+A tela permite:
+
+- visualizar imagens pendentes, revisadas, aprovadas e rejeitadas;
+- filtrar por paciente, amostra, estado e split;
+- definir `TRAIN`, `VAL`, `TEST` ou `NAO_DEFINIDO`;
+- incluir/excluir imagens do dataset;
+- visualizar estatísticas por classe;
+- aplicar split em lote;
+- abrir a revisão da imagem;
+- exportar em lote um ZIP YOLO Segmentation.
+
+Para bancos existentes, execute:
+
+```sql
+web/migrations/003_dataset_manager.sql
+```
+
+O estado é atualizado automaticamente:
+
+```text
+detecção importada -> PENDENTE
+revisão manual salva -> REVISADA
+aprovação no gerenciador -> APROVADA
+```
+
+A exportação considera somente imagens:
+
+```text
+review_state = APROVADA
+included = 1
+split = TRAIN / VAL / TEST
+```
+
+O ZIP contém:
+
+```text
+dataset.yaml
+manifest.json
+images/train
+images/val
+images/test
+labels/train
+labels/val
+labels/test
+```
+
+A exportação em ZIP requer a extensão PHP `ZipArchive`.

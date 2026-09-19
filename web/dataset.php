@@ -53,7 +53,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         }
 
         if($action==='auto_split'){
-            $groupMode=(string)($_POST['group_mode']??'SAMPLE');
+            $groupMode=(string)($_POST['group_mode']??'PATIENT');
             $trainRatio=(float)($_POST['train_ratio']??0.70);
             $valRatio=(float)($_POST['val_ratio']??0.15);
             $testRatio=(float)($_POST['test_ratio']??0.15);
@@ -98,9 +98,21 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             }
 
             usort($groupList,function($a,$b){
-                if($a['size']===$b['size']) return strcmp($a['order'],$b['order']);
+                $cmp=strcmp($a['order'],$b['order']);
+                if($cmp!==0) return $cmp;
                 return $b['size']<=>$a['size'];
             });
+
+            $requestedSplits=[];
+            if($trainRatio>0)$requestedSplits[]='TRAIN';
+            if($valRatio>0)$requestedSplits[]='VAL';
+            if($testRatio>0)$requestedSplits[]='TEST';
+            if(count($groupList)<count($requestedSplits)){
+                throw new RuntimeException(
+                    'Há somente '.count($groupList).' grupo(s) independente(s), mas '.
+                    count($requestedSplits).' splits foram solicitados. Aumente o número de pacientes/amostras independentes ou zere uma proporção.'
+                );
+            }
 
             $total=count($rows);
             $targets=[
@@ -111,14 +123,27 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             $counts=['TRAIN'=>0,'VAL'=>0,'TEST'=>0];
             $assignments=[];
 
-            foreach($groupList as $group){
+            $remaining=$groupList;
+
+            // Garante pelo menos um grupo independente em cada split solicitado.
+            foreach($requestedSplits as $splitName){
+                $group=array_shift($remaining);
+                $counts[$splitName]+=$group['size'];
+                $assignments[]=[
+                    'group_id'=>$group['id'],
+                    'split'=>$splitName,
+                    'image_ids'=>$group['images']
+                ];
+            }
+
+            foreach($remaining as $group){
                 $bestSplit=null;
                 $bestScore=null;
-                foreach(['TRAIN','VAL','TEST'] as $candidate){
+                foreach($requestedSplits as $candidate){
                     $temp=$counts;
                     $temp[$candidate]+=$group['size'];
                     $score=0.0;
-                    foreach(['TRAIN','VAL','TEST'] as $splitName){
+                    foreach($requestedSplits as $splitName){
                         $den=max(1.0,$targets[$splitName]);
                         $score+=pow(($temp[$splitName]-$targets[$splitName])/$den,2);
                     }
@@ -128,7 +153,17 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                     }
                 }
                 $counts[$bestSplit]+=$group['size'];
-                $assignments[]=['group_id'=>$group['id'],'split'=>$bestSplit,'image_ids'=>$group['images']];
+                $assignments[]=[
+                    'group_id'=>$group['id'],
+                    'split'=>$bestSplit,
+                    'image_ids'=>$group['images']
+                ];
+            }
+
+            foreach($requestedSplits as $splitName){
+                if($counts[$splitName]===0){
+                    throw new RuntimeException("O split {$splitName} ficou vazio; divisão cancelada.");
+                }
             }
 
             $pdo=db();$pdo->beginTransaction();
@@ -145,24 +180,26 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                     'counts'=>$counts,
                     'assignments'=>$assignments,
                 ];
-                $pdo->prepare(
+                $insertRun=$pdo->prepare(
                     'INSERT INTO dataset_split_runs(
                         group_mode,train_ratio,val_ratio,test_ratio,seed_value,
                         eligible_images,group_count,train_images,val_images,test_images,
                         created_by,details_json
                      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-                )->execute([
+                );
+                $insertRun->execute([
                     $groupMode,$trainRatio,$valRatio,$testRatio,$seed,
                     $total,count($groupList),$counts['TRAIN'],$counts['VAL'],$counts['TEST'],
                     (int)$user['id'],json_encode($details,JSON_UNESCAPED_UNICODE)
                 ]);
+                $splitRunId=(int)$pdo->lastInsertId();
                 $pdo->commit();
             }catch(Throwable $e){
                 if($pdo->inTransaction())$pdo->rollBack();
                 throw $e;
             }
 
-            audit('DATASET_AUTO_SPLIT','dataset_split_run',(int)$pdo->lastInsertId(),[
+            audit('DATASET_AUTO_SPLIT','dataset_split_run',$splitRunId,[
                 'group_mode'=>$groupMode,'seed'=>$seed,'counts'=>$counts
             ]);
             header('Location: dataset.php');
@@ -221,9 +258,19 @@ $splitHistory=db()->query(
 )->fetchAll();
 
 $classStats=db()->query(
-    "SELECT a.class_code,a.class_name,COUNT(*) quantity,COUNT(DISTINCT a.image_id) images
+    "SELECT a.class_code,a.class_name,
+            COUNT(*) quantity,
+            COUNT(DISTINCT a.image_id) images,
+            COUNT(DISTINCT s.id) samples,
+            COUNT(DISTINCT p.id) patients,
+            COUNT(DISTINCT CASE WHEN d.split_set='TRAIN' THEN a.image_id END) train_images,
+            COUNT(DISTINCT CASE WHEN d.split_set='VAL' THEN a.image_id END) val_images,
+            COUNT(DISTINCT CASE WHEN d.split_set='TEST' THEN a.image_id END) test_images
      FROM image_annotations a
      JOIN dataset_items d ON d.image_id=a.image_id
+     JOIN sample_images i ON i.id=a.image_id
+     JOIN samples s ON s.id=i.sample_id
+     JOIN patients p ON p.id=s.patient_id
      WHERE a.review_status='APROVADA' AND d.review_state='APROVADA' AND d.included=1
      GROUP BY a.class_code,a.class_name
      ORDER BY quantity DESC"
@@ -267,8 +314,8 @@ $classStats=db()->query(
 <input type="hidden" name="action" value="auto_split">
 <label>Agrupar por
 <select name="group_mode">
-<option value="SAMPLE">Amostra (recomendado)</option>
-<option value="PATIENT">Paciente (mais rigoroso)</option>
+<option value="PATIENT">Paciente (recomendado para validação)</option>
+<option value="SAMPLE">Amostra</option>
 </select></label>
 <div class="inline">
 <label>Train<input type="number" name="train_ratio" min="0" max="1" step="0.01" value="0.70" required></label>
@@ -277,7 +324,7 @@ $classStats=db()->query(
 </div>
 <label>Seed<input name="seed_value" value="hemacias-v1" required></label>
 <button>Calcular TRAIN / VAL / TEST</button>
-<p><small class="muted">A divisão é aplicada somente às imagens APROVADAS e incluídas. Imagens do mesmo grupo nunca são separadas.</small></p>
+<p><small class="muted">A divisão substitui o split atual das imagens APROVADAS e incluídas. Imagens do mesmo grupo nunca são separadas. Para validação científica, prefira agrupamento por paciente.</small></p>
 </form>
 </div>
 </div>
@@ -296,8 +343,12 @@ $classStats=db()->query(
 <?php endforeach;?></table>
 
 <h2>Classes aprovadas</h2>
-<table><tr><th>Classe</th><th>Objetos</th><th>Imagens</th></tr>
-<?php foreach($classStats as $cs):?><tr><td><?=h($cs['class_name'])?> <small class="muted">(<?=h($cs['class_code'])?>)</small></td><td><?=$cs['quantity']?></td><td><?=$cs['images']?></td></tr><?php endforeach;?></table>
+<table><tr><th>Classe</th><th>Objetos</th><th>Imagens</th><th>Amostras</th><th>Pacientes</th><th>TRAIN</th><th>VAL</th><th>TEST</th></tr>
+<?php foreach($classStats as $cs):?><tr>
+<td><?=h($cs['class_name'])?> <small class="muted">(<?=h($cs['class_code'])?>)</small></td>
+<td><?=$cs['quantity']?></td><td><?=$cs['images']?></td><td><?=$cs['samples']?></td><td><?=$cs['patients']?></td>
+<td><?=$cs['train_images']?></td><td><?=$cs['val_images']?></td><td><?=$cs['test_images']?></td>
+</tr><?php endforeach;?></table>
 
 <h2>Imagens</h2>
 <form method="post">

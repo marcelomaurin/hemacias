@@ -124,12 +124,59 @@ foreach(db()->query('SELECT cpi.*,cit.code,cit.name FROM count_protocol_items cp
 </section></div>
 
 <h2>Componentes cadastrados</h2>
-<table><tr><th>Cor</th><th>Código</th><th>Nome</th><th>Categoria</th><th>Unidade</th><th>IA</th><th>Anotação</th><th>Consolida</th><th>Limiar</th><th>YOLO</th><th>Ativo</th></tr>
-<?php foreach($items as $i):?><tr><td><span style="display:inline-block;width:18px;height:18px;background:<?=h($i['color_hex'])?>"></span></td><td><?=h($i['code'])?></td><td><?=h($i['name'])?></td><td><?=h($i['category'])?></td><td><?=h($i['default_unit'])?></td><td><?=$i['ai_enabled']?'Sim':'Não'?></td><td><?=$i['annotation_enabled']?'Sim':'Não'?></td><td><?=$i['summary_enabled']?'Sim':'Não'?></td><td><?=h((string)$i['confidence_threshold'])?></td><td><?=h((string)$i['yolo_class_id'])?></td><td><?=$i['active']?'Sim':'Não'?></td></tr><?php endforeach;?></table>
+<table><tr><th>Cor</th><th>Código</th><th>Nome</th><th>Categoria</th><th>Unidade</th><th>IA</th><th>Anotação</th><th>Consolida</th><th>Limiar</th><th>YOLO</th><th>Ativo</th><th></th></tr>
+<?php foreach($items as $i):?><tr><td><span style="display:inline-block;width:18px;height:18px;background:<?=h($i['color_hex'])?>"></span></td><td><?=h($i['code'])?></td><td><?=h($i['name'])?></td><td><?=h($i['category'])?></td><td><?=h($i['default_unit'])?></td><td><?=$i['ai_enabled']?'Sim':'Não'?></td><td><?=$i['annotation_enabled']?'Sim':'Não'?></td><td><?=$i['summary_enabled']?'Sim':'Não'?></td><td><?=h((string)$i['confidence_threshold'])?></td><td><?=h((string)$i['yolo_class_id'])?></td><td><?=$i['active']?'Sim':'Não'?></td><td><button type="button" onclick="document.getElementById('item<?=$i['id']?>').showModal()">Editar</button></td></tr><?php endforeach;?></table>
+
+<?php foreach($items as $i):?>
+<dialog id="item<?=$i['id']?>"><form method="post" class="card" style="min-width:420px">
+<input type="hidden" name="csrf" value="<?=h(csrf_token())?>"><input type="hidden" name="action" value="save_item"><input type="hidden" name="id" value="<?=$i['id']?>">
+<h3>Editar <?=h($i['name'])?></h3>
+<label>Código<input name="code" value="<?=h($i['code'])?>" required></label>
+<label>Nome<input name="name" value="<?=h($i['name'])?>" required></label>
+<label>Categoria<input name="category" value="<?=h($i['category'])?>"></label>
+<label>Cor<input type="color" name="color_hex" value="<?=h($i['color_hex'])?>"></label>
+<label>Unidade<input name="default_unit" value="<?=h($i['default_unit'])?>"></label>
+<label>Confiança mínima<input type="number" min="0" max="1" step="0.01" name="confidence_threshold" value="<?=h((string)$i['confidence_threshold'])?>"></label>
+<label>ID da classe YOLO<input type="number" name="yolo_class_id" value="<?=h((string)$i['yolo_class_id'])?>"></label>
+<label>Ordem<input type="number" name="sort_order" value="<?=$i['sort_order']?>"></label>
+<label><input type="checkbox" name="active" <?=$i['active']?'checked':''?>> Ativo</label>
+<label><input type="checkbox" name="ai_enabled" <?=$i['ai_enabled']?'checked':''?>> IA</label>
+<label><input type="checkbox" name="annotation_enabled" <?=$i['annotation_enabled']?'checked':''?>> Anotação</label>
+<label><input type="checkbox" name="summary_enabled" <?=$i['summary_enabled']?'checked':''?>> Consolidação</label>
+<label>Observações<textarea name="notes"><?=h($i['notes'])?></textarea></label>
+<button>Salvar</button> <button type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+</form></dialog>
+<?php endforeach;?>
 
 <h2>Protocolos cadastrados</h2>
-<?php foreach($protocols as $p):?><section class="card"><h3><?=h($p['name'])?> <small class="muted">(<?=h($p['code'])?>)</small></h3>
+<?php foreach($protocols as $p):
+$selected=[];foreach($protocolItems[(int)$p['id']]??[] as $pi){$selected[(int)$pi['item_type_id']]=$pi;}
+?><section class="card"><h3><?=h($p['name'])?> <small class="muted">(<?=h($p['code'])?>)</small></h3>
 <p>Campos: mínimo <?=$p['min_fields']?> · válidos <?=$p['min_valid_fields']?> · escala <?=h($p['default_scale_label'])?> · qualidade <?=$p['require_quality']?'obrigatória':'opcional'?></p>
 <p><?php foreach($protocolItems[(int)$p['id']]??[] as $pi):?><span class="button" style="margin:3px;background:#64748b"><?=h($pi['name'])?> · <?=h((string)$pi['confidence_threshold'])?></span><?php endforeach;?></p>
-</section><?php endforeach;?>
+<button type="button" onclick="document.getElementById('protocol<?=$p['id']?>').showModal()">Editar protocolo</button>
+</section>
+<dialog id="protocol<?=$p['id']?>"><form method="post" class="card" style="min-width:520px">
+<input type="hidden" name="csrf" value="<?=h(csrf_token())?>"><input type="hidden" name="action" value="save_protocol"><input type="hidden" name="id" value="<?=$p['id']?>">
+<h3>Editar <?=h($p['name'])?></h3>
+<label>Código<input name="code" value="<?=h($p['code'])?>" required></label><label>Nome<input name="name" value="<?=h($p['name'])?>" required></label>
+<div class="inline"><label>Campos mínimos<input type="number" min="1" name="min_fields" value="<?=$p['min_fields']?>"></label><label>Campos válidos mínimos<input type="number" min="1" name="min_valid_fields" value="<?=$p['min_valid_fields']?>"></label></div>
+<div class="inline"><label>Escala padrão<input name="default_scale_label" value="<?=h($p['default_scale_label'])?>"></label><label>Magnificação<input type="number" step="0.001" name="default_magnification" value="<?=h((string)$p['default_magnification'])?>"></label></div>
+<label><input type="checkbox" name="active" <?=$p['active']?'checked':''?>> Ativo</label>
+<label><input type="checkbox" name="require_quality" <?=$p['require_quality']?'checked':''?>> Exigir controle de qualidade</label>
+<h4>Componentes</h4>
+<?php foreach($items as $item):$sel=$selected[(int)$item['id']]??null;?>
+<div class="card" style="padding:10px">
+<label><input type="checkbox" name="items[<?=$item['id']?>][enabled]" <?=$sel?'checked':''?>> <?=h($item['name'])?></label>
+<div class="inline">
+<label>Obrigatório <input type="checkbox" name="items[<?=$item['id']?>][required]" <?=($sel&&$sel['required_item'])?'checked':''?>></label>
+<label>Consolidar <input type="checkbox" name="items[<?=$item['id']?>][summary]" <?=($sel&&$sel['summary_enabled'])?'checked':''?>></label>
+<label>Limiar<input type="number" min="0" max="1" step="0.01" name="items[<?=$item['id']?>][threshold]" value="<?=h((string)($sel['confidence_threshold']??$item['confidence_threshold']))?>"></label>
+<input type="hidden" name="items[<?=$item['id']?>][sort_order]" value="<?=h((string)($sel['sort_order']??$item['sort_order']))?>">
+</div></div>
+<?php endforeach;?>
+<label>Observações<textarea name="notes"><?=h($p['notes'])?></textarea></label>
+<button>Salvar protocolo</button> <button type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+</form></dialog>
+<?php endforeach;?>
 </main></body></html>

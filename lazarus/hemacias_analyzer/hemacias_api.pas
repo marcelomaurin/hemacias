@@ -30,6 +30,7 @@ type
     function UpsertPatient(const AName, AExternalID: string): Int64;
     function CreateSample(APatientID: Int64; const ASampleCode,
       AProtocolCode: string): Int64;
+    function GetSampleSummary(ASampleID: Int64): TJSONObject;
     function CreateCount(APayload: TJSONObject; const AImageFile: string;
       out ACountID, AImageID, AFieldID: Int64; out AFieldNo: Integer): Boolean;
   end;
@@ -235,6 +236,36 @@ begin
       Result := StrToInt64Def(IDData.AsString, 0);
   finally
     Data.Free;
+  end;
+end;
+
+function THemaciasApiClient.GetSampleSummary(ASampleID: Int64): TJSONObject;
+var
+  Req: TJSONObject;
+  Data: TJSONData;
+begin
+  Result := nil;
+  Req := TJSONObject.Create;
+  try
+    Req.Add('sample_id', ASampleID);
+    Data := RequestJSON('sample_summary', Req);
+  finally
+    Req.Free;
+  end;
+
+  if Data = nil then Exit;
+  if not (Data is TJSONObject) then
+  begin
+    FLastError := 'Resposta inválida ao consultar resumo da amostra.';
+    Data.Free;
+    Exit;
+  end;
+
+  Result := TJSONObject(Data);
+  if not Result.Get('ok', False) then
+  begin
+    FLastError := Result.Get('error', 'Falha ao consultar resumo da amostra.');
+    FreeAndNil(Result);
   end;
 end;
 

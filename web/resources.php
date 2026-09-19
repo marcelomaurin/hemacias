@@ -53,13 +53,14 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                 trim((string)$_POST['default_scale_label'])?:null,
                 $_POST['default_magnification']===''?null:(float)$_POST['default_magnification'],
                 isset($_POST['require_quality'])?1:0,
+                (int)($_POST['default_model_id']??0)?:null,
                 trim((string)$_POST['notes'])?:null
             ];
             if($id){
-                $st=db()->prepare('UPDATE count_protocols SET code=?,name=?,active=?,min_fields=?,min_valid_fields=?,default_scale_label=?,default_magnification=?,require_quality=?,notes=? WHERE id=?');
+                $st=db()->prepare('UPDATE count_protocols SET code=?,name=?,active=?,min_fields=?,min_valid_fields=?,default_scale_label=?,default_magnification=?,require_quality=?,default_model_id=?,notes=? WHERE id=?');
                 $st->execute([...$vals,$id]); $protocolId=$id;
             }else{
-                $st=db()->prepare('INSERT INTO count_protocols(code,name,active,min_fields,min_valid_fields,default_scale_label,default_magnification,require_quality,notes) VALUES(?,?,?,?,?,?,?,?,?)');
+                $st=db()->prepare('INSERT INTO count_protocols(code,name,active,min_fields,min_valid_fields,default_scale_label,default_magnification,require_quality,default_model_id,notes) VALUES(?,?,?,?,?,?,?,?,?,?)');
                 $st->execute($vals);$protocolId=(int)db()->lastInsertId();
             }
             db()->prepare('DELETE FROM count_protocol_items WHERE protocol_id=?')->execute([$protocolId]);
@@ -80,6 +81,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 }
 
 $items=db()->query('SELECT * FROM count_item_types ORDER BY sort_order,name')->fetchAll();
+$models=db()->query("SELECT id,name,version,status FROM ai_models WHERE status IN ('VALIDACAO','APROVADO') ORDER BY status='APROVADO' DESC,name,version")->fetchAll();
 $protocols=db()->query('SELECT * FROM count_protocols ORDER BY active DESC,name')->fetchAll();
 $protocolItems=[];
 foreach(db()->query('SELECT cpi.*,cit.code,cit.name FROM count_protocol_items cpi JOIN count_item_types cit ON cit.id=cpi.item_type_id ORDER BY cpi.sort_order,cit.name')->fetchAll() as $pi){
@@ -111,6 +113,7 @@ foreach(db()->query('SELECT cpi.*,cit.code,cit.name FROM count_protocol_items cp
 <div class="inline"><label>Campos mínimos<input type="number" min="1" name="min_fields" value="10"></label><label>Campos válidos mínimos<input type="number" min="1" name="min_valid_fields" value="8"></label></div>
 <div class="inline"><label>Escala padrão<input name="default_scale_label" value="40x"></label><label>Magnificação<input type="number" step="0.001" name="default_magnification" value="40"></label></div>
 <label><input type="checkbox" name="active" checked> Ativo</label><label><input type="checkbox" name="require_quality" checked> Exigir controle de qualidade</label>
+<label>Modelo padrão<select name="default_model_id"><option value="0">Nenhum</option><?php foreach($models as $m):?><option value="<?=$m['id']?>"><?=h($m['name'].' '.$m['version'].' · '.$m['status'])?></option><?php endforeach;?></select></label>
 <h3>Componentes</h3>
 <?php foreach($items as $item):?>
 <div class="card" style="padding:10px">
@@ -164,6 +167,7 @@ $selected=[];foreach($protocolItems[(int)$p['id']]??[] as $pi){$selected[(int)$p
 <div class="inline"><label>Escala padrão<input name="default_scale_label" value="<?=h($p['default_scale_label'])?>"></label><label>Magnificação<input type="number" step="0.001" name="default_magnification" value="<?=h((string)$p['default_magnification'])?>"></label></div>
 <label><input type="checkbox" name="active" <?=$p['active']?'checked':''?>> Ativo</label>
 <label><input type="checkbox" name="require_quality" <?=$p['require_quality']?'checked':''?>> Exigir controle de qualidade</label>
+<label>Modelo padrão<select name="default_model_id"><option value="0">Nenhum</option><?php foreach($models as $m):?><option value="<?=$m['id']?>" <?=((int)$p['default_model_id']===(int)$m['id'])?'selected':''?>><?=h($m['name'].' '.$m['version'].' · '.$m['status'])?></option><?php endforeach;?></select></label>
 <h4>Componentes</h4>
 <?php foreach($items as $item):$sel=$selected[(int)$item['id']]??null;?>
 <div class="card" style="padding:10px">

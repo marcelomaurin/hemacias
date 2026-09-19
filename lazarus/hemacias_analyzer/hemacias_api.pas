@@ -163,6 +163,7 @@ var
   Req: TJSONObject;
   Data: TJSONData;
   Obj: TJSONObject;
+  IDData: TJSONData;
 begin
   Result := 0;
   Req := TJSONObject.Create;
@@ -188,7 +189,9 @@ begin
       FLastError := Obj.Get('error', 'Falha ao cadastrar paciente.');
       Exit;
     end;
-    Result := Obj.Get('patient_id', Int64(0));
+    IDData := Obj.Find('patient_id');
+    if IDData <> nil then
+      Result := StrToInt64Def(IDData.AsString, 0);
   finally
     Data.Free;
   end;
@@ -200,6 +203,7 @@ var
   Req: TJSONObject;
   Data: TJSONData;
   Obj: TJSONObject;
+  IDData: TJSONData;
 begin
   Result := 0;
   Req := TJSONObject.Create;
@@ -226,7 +230,9 @@ begin
       FLastError := Obj.Get('error', 'Falha ao criar amostra.');
       Exit;
     end;
-    Result := Obj.Get('sample_id', Int64(0));
+    IDData := Obj.Find('sample_id');
+    if IDData <> nil then
+      Result := StrToInt64Def(IDData.AsString, 0);
   finally
     Data.Free;
   end;
@@ -256,6 +262,16 @@ var
   Req: TJSONObject;
   Data: TJSONData;
   Obj: TJSONObject;
+  D: TJSONData;
+
+  function JsonInt64(const AName: string): Int64;
+  begin
+    Result := 0;
+    D := Obj.Find(AName);
+    if D <> nil then
+      Result := StrToInt64Def(D.AsString, 0);
+  end;
+
 begin
   Result := False;
   ACountID := 0;
@@ -291,10 +307,10 @@ begin
       Exit;
     end;
 
-    ACountID := Obj.Get('count_id', Int64(0));
-    AImageID := Obj.Get('image_id', Int64(0));
-    AFieldID := Obj.Get('field_id', Int64(0));
-    AFieldNo := Obj.Get('field_no', 0);
+    ACountID := JsonInt64('count_id');
+    AImageID := JsonInt64('image_id');
+    AFieldID := JsonInt64('field_id');
+    AFieldNo := Integer(JsonInt64('field_no'));
     Result := ACountID > 0;
   finally
     Data.Free;

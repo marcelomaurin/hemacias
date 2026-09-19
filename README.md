@@ -127,7 +127,7 @@ python teste04.py \
   --magnification 40
 ```
 
-O detector atual identifica automaticamente apenas hemácias. O banco e a API já aceitam leucócitos, plaquetas e outros componentes para contagens manuais ou futuros detectores.
+Hough e Watershed continuam especializados em hemácias. O método YOLO agora é multiclasse e envia uma contagem separada para cada classe prevista pelo modelo, como hemácia, leucócito, plaqueta e artefato.
 
 ## O que foi corrigido
 
@@ -258,3 +258,50 @@ python teste04.py \
 Cada previsão registra classe, confiança, caixa delimitadora e polígono da máscara quando disponível.
 
 > O modelo treinado deve ser validado em uma base separada antes de qualquer uso laboratorial.
+
+
+## Contagem multiclasse de componentes sanguíneos
+
+O método `yolo` não filtra mais somente hemácias. Todas as classes previstas pelo modelo treinado são preservadas e agrupadas.
+
+Exemplo de resultado:
+
+```text
+hemacia: 132
+leucocito: 4
+plaqueta: 27
+artefato: 3
+```
+
+Cada classe é enviada como um `count_component` separado, com:
+
+- quantidade;
+- confiança média;
+- detecções individuais;
+- bounding box;
+- polígono da máscara;
+- contagem estabilizada daquela classe.
+
+Hough e Watershed permanecem hemácia-only para comparação com o pipeline clássico.
+
+### Avaliação multiclasse
+
+O CSV de referência pode usar a coluna `class`:
+
+```csv
+image,class,manual_count
+campo01.jpg,hemacia,132
+campo01.jpg,leucocito,4
+campo01.jpg,plaqueta,27
+campo02.jpg,hemacia,141
+```
+
+Execute:
+
+```bash
+python tools/evaluate_counts.py referencia_multiclasse.csv \
+  --method yolo \
+  --model runs/hemacias/seg/weights/best.pt
+```
+
+A ferramenta mostra MAE, viés e MAPE geral e por classe.

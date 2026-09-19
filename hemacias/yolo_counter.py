@@ -59,6 +59,7 @@ class YoloSegCounter:
         *,
         confidence: float = 0.25,
         iou: float = 0.70,
+        imgsz: int | None = None,
         min_focus_score: float = 35.0,
         history_size: int = 15,
         target_class: str | None = None,
@@ -78,6 +79,7 @@ class YoloSegCounter:
         self.model = YOLO(str(path))
         self.confidence = confidence
         self.iou = iou
+        self.imgsz = imgsz
         self.min_focus_score = min_focus_score
         self.target_class = target_class.casefold() if target_class else None
         self._history: deque[int] = deque(maxlen=max(1, history_size))
@@ -106,12 +108,15 @@ class YoloSegCounter:
             }
             return YoloResult(0, stable, focus, "DESFOCADA", [], {}, stable_by_class)
 
-        predictions = self.model.predict(
-            source=frame,
-            conf=self.confidence,
-            iou=self.iou,
-            verbose=False,
-        )
+        predict_kwargs = {
+            "source": frame,
+            "conf": self.confidence,
+            "iou": self.iou,
+            "verbose": False,
+        }
+        if self.imgsz:
+            predict_kwargs["imgsz"] = int(self.imgsz)
+        predictions = self.model.predict(**predict_kwargs)
         cells: list[YoloCell] = []
 
         if predictions:

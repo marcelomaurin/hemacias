@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +42,14 @@ class YoloResult:
     focus_score: float
     image_quality: str
     cells: list[YoloCell] = field(default_factory=list)
+    counts_by_class: dict[str, int] = field(default_factory=dict)
+    stable_counts_by_class: dict[str, int] = field(default_factory=dict)
+
+    def cells_by_class(self) -> dict[str, list[YoloCell]]:
+        grouped: dict[str, list[YoloCell]] = defaultdict(list)
+        for cell in self.cells:
+            grouped[cell.class_name].append(cell)
+        return dict(grouped)
 
 
 class YoloSegCounter:
@@ -53,7 +61,7 @@ class YoloSegCounter:
         iou: float = 0.70,
         min_focus_score: float = 35.0,
         history_size: int = 15,
-        target_class: str = "hemacia",
+        target_class: str | None = None,
     ):
         try:
             from ultralytics import YOLO
@@ -71,11 +79,14 @@ class YoloSegCounter:
         self.confidence = confidence
         self.iou = iou
         self.min_focus_score = min_focus_score
-        self.target_class = target_class.casefold()
+        self.target_class = target_class.casefold() if target_class else None
         self._history: deque[int] = deque(maxlen=max(1, history_size))
+        self._class_history: dict[str, deque[int]] = {}
+        self._history_size = max(1, history_size)
 
     def reset(self) -> None:
         self._history.clear()
+        self._class_history.clear()
 
     @staticmethod
     def focus_score(gray: np.ndarray) -> float:
@@ -89,7 +100,11 @@ class YoloSegCounter:
         focus = self.focus_score(gray)
         if focus < self.min_focus_score:
             stable = int(round(float(np.median(self._history)))) if self._history else 0
-            return YoloResult(0, stable, focus, "DESFOCADA", [])
+            stable_by_class = {
+                name: int(round(float(np.median(values)))) if values else 0
+                for name, values in self._class_history.items()
+            }
+            return YoloResult(0, stable, focus, "DESFOCADA", [], {}, stable_by_class)
 
         predictions = self.model.predict(
             source=frame,
@@ -114,7 +129,7 @@ class YoloSegCounter:
                 next_id = 1
                 for box, conf, class_id, polygon in zip(xyxy, confs, classes, polygons):
                     class_name = str(names.get(int(class_id), class_id))
-                    if class_name.casefold() != self.target_class:
+                    if self.target_class and class_name.casefold() != self.target_class:
                         continue
 
                     x1, y1, x2, y2 = [float(v) for v in box]
@@ -144,36 +159,76 @@ class YoloSegCounter:
                     )
                     next_id += 1
 
+        counts = Counter(cell.class_name for cell in cells)
         count = len(cells)
         self._history.append(count)
+
+        known_classes = set(self._class_history) | set(counts)
+        for class_name in known_classes:
+            history = self._class_history.setdefault(
+                class_name, deque(maxlen=self._history_size)
+            )
+            history.append(int(counts.get(class_name, 0)))
+
         stable = int(round(float(np.median(self._history))))
-        return YoloResult(count, stable, focus, "OK", cells)
+        stable_by_class = {
+            name: int(round(float(np.median(values)))) if values else 0
+            for name, values in self._class_history.items()
+        }
+        return YoloResult(
+            count,
+            stable,
+            focus,
+            "OK",
+            cells,
+            dict(counts),
+            stable_by_class,
+        )
 
     @staticmethod
     def draw(frame: np.ndarray, result: YoloResult) -> np.ndarray:
         output = frame.copy()
+        palette = [
+            (0, 255, 0),
+            (255, 180, 0),
+            (0, 215, 255),
+            (0, 0, 255),
+            (255, 255, 255),
+            (255, 0, 255),
+        ]
+        class_names = sorted(result.counts_by_class)
+        colors = {name: palette[i % len(palette)] for i, name in enumerate(class_names)}
+
         for cell in result.cells:
+            color = colors.get(cell.class_name, (0, 255, 0))
             if len(cell.polygon) >= 3:
                 points = np.array(cell.polygon, dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(output, [points], True, (0, 255, 0), 2)
+                cv2.polylines(output, [points], True, color, 2)
             else:
-                cv2.circle(output, (cell.x, cell.y), max(2, int(cell.radius_px)), (0, 255, 0), 2)
+                cv2.circle(output, (cell.x, cell.y), max(2, int(cell.radius_px)), color, 2)
             cv2.putText(
                 output,
-                f"{cell.id}:{cell.confidence:.2f}",
+                f"{cell.class_name}:{cell.id} {cell.confidence:.2f}",
                 (cell.x + 3, cell.y - 3),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.36,
-                (0, 255, 0),
+                0.34,
+                color,
                 1,
             )
 
+        summary = " | ".join(
+            f"{name}:{result.stable_counts_by_class.get(name, 0)}"
+            for name in sorted(result.stable_counts_by_class)
+        )
+        if not summary:
+            summary = "sem objetos"
+
         cv2.putText(
             output,
-            f"YOLO | Hemacias: {result.stable_count} (frame: {result.instant_count})",
+            f"YOLO | {summary}",
             (10, max(30, output.shape[0] - 15)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.60,
+            0.52,
             (0, 255, 0),
             2,
         )

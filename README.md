@@ -338,3 +338,31 @@ O pipeline:
 9. mantém o modelo em `VALIDACAO` até aprovação explícita no gerenciador.
 
 O script não promove automaticamente um modelo para `APROVADO`.
+
+
+## Prontidão científica do dataset
+
+Antes do treinamento, execute:
+
+```bash
+python tools/check_yolo_dataset.py datasets/hemacias_seg/dataset.yaml --strict
+```
+
+A verificação cobre:
+
+- presença de TRAIN, VAL e TEST;
+- labels sem imagem;
+- imagens sem label, sinalizadas para confirmar negativos intencionais;
+- formato das segmentações YOLO;
+- cobertura das classes em validação e teste;
+- presença de `manifest.json`;
+- proveniência do split;
+- agrupamento por paciente no modo estrito.
+
+O `tools/blood_seg_pipeline.py` executa essa verificação automaticamente antes de iniciar o treinamento. Para datasets legados sem proveniência, existe `--allow-untracked-dataset`, destinado somente a experimentação.
+
+Para reconstruir um dataset LabelMe local sem resíduos de uma conversão anterior:
+
+```bash
+python tools/labelme_to_yolo_seg.py --clean
+```

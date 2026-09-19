@@ -46,6 +46,10 @@ Ações implementadas:
 - `patient_search`
 - `sample_create`
 - `count_create`
+- `config`
+- `model_register`
+- `model_metric_upsert`
+- `models_list`
 
 A aplicação `teste04.py` usa essas ações automaticamente.
 

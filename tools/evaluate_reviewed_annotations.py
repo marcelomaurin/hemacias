@@ -252,6 +252,7 @@ def main() -> int:
                 {
                     "model_id": args.model_id,
                     "component_code": code,
+                    "metric_origin": "GROUND_TRUTH",
                     "precision": m["precision"],
                     "recall": m["recall"],
                     "f1": m["f1"],
@@ -269,6 +270,7 @@ def main() -> int:
             "model_metric_upsert",
             {
                 "model_id": args.model_id,
+                "metric_origin": "GROUND_TRUTH",
                 "precision": overall_metrics["precision"],
                 "recall": overall_metrics["recall"],
                 "f1": overall_metrics["f1"],

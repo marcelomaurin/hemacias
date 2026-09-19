@@ -173,6 +173,11 @@ try {
             json_response(['ok'=>false,'error'=>'sample_count deve ser >= 0'],422);
         }
 
+        $origin=strtoupper(trim((string)($d['metric_origin']??'MANUAL')));
+        if(!in_array($origin,['TRAINING','COUNT_REFERENCE','GROUND_TRUTH','MANUAL'],true)){
+            json_response(['ok'=>false,'error'=>'metric_origin inválido'],422);
+        }
+
         $code=trim((string)($d['component_code']??''));
         $itemTypeId=null;
         $scope='GERAL';
@@ -184,13 +189,13 @@ try {
             $scope='CLASSE';
         }
         if($itemTypeId){
-            db()->prepare("DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id=? AND metric_scope='CLASSE'")->execute([$modelId,$itemTypeId]);
+            db()->prepare("DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id=? AND metric_scope='CLASSE' AND metric_origin=?")->execute([$modelId,$itemTypeId,$origin]);
         }else{
-            db()->prepare("DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id IS NULL AND metric_scope='GERAL'")->execute([$modelId]);
+            db()->prepare("DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id IS NULL AND metric_scope='GERAL' AND metric_origin=?")->execute([$modelId,$origin]);
         }
-        $st=db()->prepare('INSERT INTO ai_model_metrics(model_id,item_type_id,metric_scope,precision_value,recall_value,f1_value,map50_value,map5095_value,mae_value,bias_value,mape_value,sample_count,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $st=db()->prepare('INSERT INTO ai_model_metrics(model_id,item_type_id,metric_scope,metric_origin,precision_value,recall_value,f1_value,map50_value,map5095_value,mae_value,bias_value,mape_value,sample_count,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $st->execute([
-            $modelId,$itemTypeId,$scope,
+            $modelId,$itemTypeId,$scope,$origin,
             $d['precision']??null,$d['recall']??null,$d['f1']??null,$d['map50']??null,$d['map5095']??null,
             $d['mae']??null,$d['bias']??null,$d['mape']??null,$d['sample_count']??null,$d['notes']??null
         ]);
@@ -200,7 +205,7 @@ try {
     if ($action === 'models_list') {
         $rows=db()->query(
             "SELECT m.id,m.code,m.name,m.version,m.model_type,m.status,m.file_path,m.sha256,m.dataset_ref,m.imgsz,m.epochs,m.trained_at,
-                    mm.metric_scope,mm.precision_value,mm.recall_value,mm.f1_value,mm.map50_value,mm.map5095_value,mm.mae_value,mm.bias_value,mm.mape_value,mm.sample_count,
+                    mm.metric_scope,mm.metric_origin,mm.precision_value,mm.recall_value,mm.f1_value,mm.map50_value,mm.map5095_value,mm.mae_value,mm.bias_value,mm.mape_value,mm.sample_count,
                     cit.code component_code,cit.name component_name
              FROM ai_models m
              LEFT JOIN ai_model_metrics mm ON mm.model_id=m.id
@@ -220,7 +225,7 @@ try {
             }
             if($row['metric_scope']){
                 $models[$id]['metrics'][]=[
-                    'scope'=>$row['metric_scope'],'component_code'=>$row['component_code'],'component_name'=>$row['component_name'],
+                    'scope'=>$row['metric_scope'],'origin'=>$row['metric_origin'],'component_code'=>$row['component_code'],'component_name'=>$row['component_name'],
                     'precision'=>$row['precision_value'],'recall'=>$row['recall_value'],'f1'=>$row['f1_value'],
                     'map50'=>$row['map50_value'],'map5095'=>$row['map5095_value'],'mae'=>$row['mae_value'],
                     'bias'=>$row['bias_value'],'mape'=>$row['mape_value'],'sample_count'=>$row['sample_count']

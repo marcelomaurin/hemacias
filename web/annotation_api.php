@@ -72,9 +72,17 @@ if($action==='import_auto'){
                     ];
                 }
             }
+            $code=strtolower((string)($det['class_name']??''));
+            $stType=db()->prepare(
+                'SELECT id,code,name FROM count_item_types WHERE code=? AND active=1 AND annotation_enabled=1'
+            );
+            $stType->execute([$code]);
+            $type=$stType->fetch();
+            if(!$type) continue;
             $auto[]=[
-                'class_code'=>(string)($det['class_name']??'hemacia'),
-                'class_name'=>((string)($det['class_name']??'hemacia')==='hemacia'?'Hemácia':(string)($det['class_name']??'Outro')),
+                'item_type_id'=>(int)$type['id'],
+                'class_code'=>(string)$type['code'],
+                'class_name'=>(string)$type['name'],
                 'polygon'=>$polygon,
                 'review_status'=>'PENDENTE',
                 'notes'=>'Importada da detecção automática',
@@ -86,12 +94,12 @@ if($action==='import_auto'){
     try{
         $pdo->prepare('DELETE FROM image_annotations WHERE image_id=? AND source=\'AUTO_IMPORT\'')->execute([$imageId]);
         $ins=$pdo->prepare(
-            'INSERT INTO image_annotations(image_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
-             VALUES(?,?,?,?,\'AUTO_IMPORT\',?,?,?)'
+            'INSERT INTO image_annotations(image_id,item_type_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
+             VALUES(?,?,?,?,?,\'AUTO_IMPORT\',?,?,?)'
         );
         foreach($auto as $item){
             $ins->execute([
-                $imageId,$item['class_code'],$item['class_name'],
+                $imageId,$item['item_type_id'],$item['class_code'],$item['class_name'],
                 json_encode($item['polygon'],JSON_UNESCAPED_UNICODE),
                 $item['review_status'],$item['notes'],(int)$user['id']
             ]);
@@ -126,8 +134,15 @@ if($action==='save_all'){
     $clean=[];
 
     foreach($items as $idx=>$item){
-        $classCode=trim((string)($item['class_code']??'hemacia'));
-        $className=trim((string)($item['class_name']??'Hemácia'));
+        $classCode=strtolower(trim((string)($item['class_code']??'')));
+        $stType=db()->prepare(
+            'SELECT id,code,name FROM count_item_types WHERE code=? AND active=1 AND annotation_enabled=1'
+        );
+        $stType->execute([$classCode]);
+        $type=$stType->fetch();
+        if(!$type) ann_json(['ok'=>false,'error'=>"Classe inválida na anotação {$idx}."],422);
+        $classCode=(string)$type['code'];
+        $className=(string)$type['name'];
         $polygon=$item['polygon']??null;
         if($classCode==='' || $className==='' || !is_array($polygon) || count($polygon)<3){
             ann_json(['ok'=>false,'error'=>"Anotação {$idx} inválida."],422);
@@ -142,6 +157,7 @@ if($action==='save_all'){
             $points[]=[$x,$y];
         }
         $clean[]=[
+            'item_type_id'=>(int)$type['id'],
             'class_code'=>$classCode,
             'class_name'=>$className,
             'polygon'=>$points,
@@ -154,12 +170,12 @@ if($action==='save_all'){
     try{
         $pdo->prepare('DELETE FROM image_annotations WHERE image_id=?')->execute([$imageId]);
         $ins=$pdo->prepare(
-            'INSERT INTO image_annotations(image_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
-             VALUES(?,?,?,?,\'MANUAL\',?,?,?)'
+            'INSERT INTO image_annotations(image_id,item_type_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
+             VALUES(?,?,?,?,?,\'MANUAL\',?,?,?)'
         );
         foreach($clean as $item){
             $ins->execute([
-                $imageId,$item['class_code'],$item['class_name'],
+                $imageId,$item['item_type_id'],$item['class_code'],$item['class_name'],
                 json_encode($item['polygon'],JSON_UNESCAPED_UNICODE),
                 $item['review_status'],$item['notes'],(int)$user['id']
             ]);

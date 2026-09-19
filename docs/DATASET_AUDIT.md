@@ -49,3 +49,21 @@ A auditoria verifica pares imagem/JSON, inconsistência de imagePath, classes, t
 4. Não colocar no teste recortes derivados do mesmo campo usado no treino.
 5. Anotar parte das imagens coloridas se o modelo final trabalhar com cor.
 6. Rodar a auditoria antes de cada treinamento.
+
+
+## Regra de segurança adicionada ao conversor
+
+O conversor LabelMe → YOLO agora é **estrito por padrão**. Se o campo `imagePath`
+do JSON não corresponder ao nome-base do próprio JSON, a anotação é ignorada e uma
+mensagem de revisão é exibida.
+
+Isso evita associar silenciosamente um polígono a uma imagem potencialmente errada.
+
+Somente após revisão manual é possível liberar esse comportamento com:
+
+```bash
+python tools/labelme_to_yolo_seg.py --allow-imagepath-mismatch
+```
+
+O script de treinamento também foi endurecido: ele não inicia se não houver labels
+tanto em `train` quanto em `val`.

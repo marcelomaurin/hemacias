@@ -70,21 +70,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $patientId=(int)$_POST['patient_id'];
             $code=trim((string)$_POST['sample_code']);
             if ($patientId<1 || $code==='') throw new RuntimeException('Paciente e código da amostra são obrigatórios.');
-            $st=db()->prepare('INSERT INTO samples(patient_id,sample_code,collected_at,sample_type,notes,created_by) VALUES(?,?,?,?,?,?)');
-            $st->execute([$patientId,$code,$_POST['collected_at']?:null,$_POST['sample_type']?:'sangue',$_POST['notes']?:null,(int)$user['id']]);
+            $protocolId=(int)($_POST['protocol_id']??0);
+            $st=db()->prepare('INSERT INTO samples(patient_id,protocol_id,sample_code,collected_at,sample_type,notes,created_by) VALUES(?,?,?,?,?,?,?)');
+            $st->execute([$patientId,$protocolId?:null,$code,$_POST['collected_at']?:null,$_POST['sample_type']?:'sangue',$_POST['notes']?:null,(int)$user['id']]);
             $id=(int)db()->lastInsertId(); audit('CREATE','sample',$id);
             header('Location: index.php?page=sample&id='.$id); exit;
         }
 
         if ($action === 'manual_count') {
             $sampleId=(int)$_POST['sample_id'];
+            $itemTypeId=(int)($_POST['item_type_id']??0);
             $qty=max(0,(int)$_POST['quantity']);
+            $st=db()->prepare('SELECT * FROM count_item_types WHERE id=? AND active=1');
+            $st->execute([$itemTypeId]);
+            $item=$st->fetch();
+            if(!$item) throw new RuntimeException('Componente de contagem inválido.');
+
             $pdo=db(); $pdo->beginTransaction();
             $st=$pdo->prepare('INSERT INTO counts(sample_id,method,scale_label,magnification,total_cells,notes,source,created_by) VALUES(?,?,?,?,?,?,\'WEB\',?)');
             $st->execute([$sampleId,'manual',$_POST['scale_label']?:null,$_POST['magnification']?:null,$qty,$_POST['notes']?:null,(int)$user['id']]);
             $countId=(int)$pdo->lastInsertId();
-            $st=$pdo->prepare('INSERT INTO count_components(count_id,component_code,component_name,quantity,unit) VALUES(?,?,?,?,?)');
-            $st->execute([$countId,$_POST['component_code']?:'hemacia',$_POST['component_name']?:'Hemácia',$qty,$_POST['unit']?:'células/campo']);
+            $st=$pdo->prepare('INSERT INTO count_components(count_id,item_type_id,component_code,component_name,quantity,unit) VALUES(?,?,?,?,?,?)');
+            $st->execute([$countId,$itemTypeId,$item['code'],$item['name'],$qty,$item['default_unit']]);
             $pdo->commit(); audit('CREATE','count',$countId);
             header('Location: index.php?page=sample&id='.$sampleId); exit;
         }
@@ -109,7 +116,7 @@ function layout_start(array $user, string $title): void { ?>
 <title><?=h($title)?> - Hemácias</title><link rel="stylesheet" href="assets/style.css"></head><body>
 <header><strong>Hemácias</strong><nav>
 <a href="index.php">Dashboard</a><a href="index.php?page=patients">Pacientes</a><a href="dataset.php">Dataset</a>
-<?php if ($user['role']==='ADMIN'): ?><a href="index.php?page=users">Gestão</a><?php endif; ?>
+<?php if ($user['role']==='ADMIN'): ?><a href="resources.php">Recursos</a><a href="index.php?page=users">Gestão</a><?php endif; ?>
 <a href="index.php?page=logout">Sair (<?=h($user['name'])?>)</a></nav></header><main class="container">
 <?php }
 function layout_end(): void { echo '</main></body></html>'; }
@@ -134,15 +141,18 @@ if ($page === 'patients') {
 if ($page === 'patient') {
     $id=(int)($_GET['id']??0); $st=db()->prepare('SELECT * FROM patients WHERE id=?');$st->execute([$id]);$patient=$st->fetch();
     if(!$patient){http_response_code(404);exit('Paciente não encontrado.');}
-    $st=db()->prepare('SELECT * FROM samples WHERE patient_id=? ORDER BY created_at DESC');$st->execute([$id]);$samples=$st->fetchAll();
+    $st=db()->prepare('SELECT s.*,cp.name protocol_name FROM samples s LEFT JOIN count_protocols cp ON cp.id=s.protocol_id WHERE s.patient_id=? ORDER BY s.created_at DESC');$st->execute([$id]);$samples=$st->fetchAll();
+    $protocols=db()->query('SELECT id,name FROM count_protocols WHERE active=1 ORDER BY name')->fetchAll();
     layout_start($user,'Paciente'); ?>
     <h1><?=h($patient['name'])?></h1><div class="card"><b>ID externo:</b> <?=h($patient['external_id'])?> &nbsp; <b>Nascimento:</b> <?=h($patient['birth_date'])?></div>
     <div class="grid"><section class="card"><h2>Nova amostra</h2><form method="post">
     <input type="hidden" name="csrf" value="<?=h(csrf_token())?>"><input type="hidden" name="action" value="sample_create"><input type="hidden" name="patient_id" value="<?=$id?>">
     <label>Código da amostra<input name="sample_code" required></label><label>Coleta<input type="datetime-local" name="collected_at"></label>
-    <label>Tipo<input name="sample_type" value="sangue"></label><label>Observações<textarea name="notes"></textarea></label><button>Criar amostra</button></form></section></div>
-    <h2>Amostras</h2><table><tr><th>Código</th><th>Data</th><th>Status</th></tr><?php foreach($samples as $s):?>
-    <tr><td><a href="index.php?page=sample&id=<?=$s['id']?>"><?=h($s['sample_code'])?></a></td><td><?=h($s['created_at'])?></td><td><?=h($s['status'])?></td></tr><?php endforeach;?></table>
+    <label>Tipo<input name="sample_type" value="sangue"></label>
+    <label>Protocolo<select name="protocol_id"><?php foreach($protocols as $p):?><option value="<?=$p['id']?>"><?=h($p['name'])?></option><?php endforeach;?></select></label>
+    <label>Observações<textarea name="notes"></textarea></label><button>Criar amostra</button></form></section></div>
+    <h2>Amostras</h2><table><tr><th>Código</th><th>Protocolo</th><th>Data</th><th>Status</th></tr><?php foreach($samples as $s):?>
+    <tr><td><a href="index.php?page=sample&id=<?=$s['id']?>"><?=h($s['sample_code'])?></a></td><td><?=h($s['protocol_name'])?></td><td><?=h($s['created_at'])?></td><td><?=h($s['status'])?></td></tr><?php endforeach;?></table>
     <?php layout_end();exit;
 }
 
@@ -159,7 +169,7 @@ if ($page === 'count') {
     $count=$st->fetch();
     if(!$count){http_response_code(404);exit('Contagem não encontrada.');}
 
-    $st=db()->prepare('SELECT * FROM count_components WHERE count_id=? ORDER BY id');
+    $st=db()->prepare("SELECT cc.*,COALESCE(cit.color_hex,'#ffffff') color_hex FROM count_components cc LEFT JOIN count_item_types cit ON cit.id=cc.item_type_id WHERE cc.count_id=? ORDER BY cc.id");
     $st->execute([$id]);
     $components=$st->fetchAll();
 
@@ -199,6 +209,7 @@ if ($page === 'count') {
                   if(!is_array($det)) continue;
                   $det['_component_code']=(string)$component['component_code'];
                   $det['_component_name']=(string)$component['component_name'];
+                  $det['_color']=(string)($component['color_hex']??'#ffffff');
                   $detections[]=$det;
               }
           }
@@ -214,14 +225,8 @@ if ($page === 'count') {
           <?php foreach($detections as $det):
             $x=(float)($det['x']??0); $y=(float)($det['y']??0); $r=max(2.0,(float)($det['radius_px']??4));
             $polygon=is_array($det['polygon']??null)?$det['polygon']:[];
-            $code=(string)($det['_component_code']??'hemacia');
-            $stroke=match($code){
-                'hemacia'=>'#00ff00',
-                'leucocito'=>'#00b7ff',
-                'plaqueta'=>'#ffd000',
-                'artefato'=>'#ff3b30',
-                default=>'#ffffff'
-            };
+            $code=(string)($det['_component_code']??'');
+            $stroke=(string)($det['_color']??'#ffffff');
             $points=[];
             foreach($polygon as $point){
                 if(is_array($point) && count($point)>=2){
@@ -253,18 +258,26 @@ if ($page === 'count') {
 
 if ($page === 'sample') {
     $id=(int)($_GET['id']??0);
-    $st=db()->prepare('SELECT s.*,p.name patient_name,p.id patient_id FROM samples s JOIN patients p ON p.id=s.patient_id WHERE s.id=?');$st->execute([$id]);$sample=$st->fetch();
+    $st=db()->prepare('SELECT s.*,p.name patient_name,p.id patient_id,cp.name protocol_name FROM samples s JOIN patients p ON p.id=s.patient_id LEFT JOIN count_protocols cp ON cp.id=s.protocol_id WHERE s.id=?');$st->execute([$id]);$sample=$st->fetch();
     if(!$sample){http_response_code(404);exit('Amostra não encontrada.');}
     $st=db()->prepare('SELECT c.*,GROUP_CONCAT(CONCAT(cc.component_name,\': \',cc.quantity,\' \',cc.unit) SEPARATOR \' | \') components FROM counts c LEFT JOIN count_components cc ON cc.count_id=c.id WHERE c.sample_id=? GROUP BY c.id ORDER BY c.created_at DESC');$st->execute([$id]);$counts=$st->fetchAll();
     $st=db()->prepare('SELECT * FROM sample_images WHERE sample_id=? ORDER BY created_at DESC');$st->execute([$id]);$images=$st->fetchAll();
+    $st=db()->prepare(
+      "SELECT cit.* FROM count_item_types cit
+       LEFT JOIN count_protocol_items cpi ON cpi.item_type_id=cit.id AND cpi.protocol_id=?
+       WHERE cit.active=1 AND (? IS NULL OR cpi.protocol_id IS NOT NULL)
+       ORDER BY COALESCE(cpi.sort_order,cit.sort_order),cit.name"
+    );
+    $st->execute([$sample['protocol_id'],$sample['protocol_id']]);
+    $countItems=$st->fetchAll();
     layout_start($user,'Amostra'); ?>
-    <h1>Amostra <?=h($sample['sample_code'])?></h1><p>Paciente: <a href="index.php?page=patient&id=<?=$sample['patient_id']?>"><?=h($sample['patient_name'])?></a></p>
+    <h1>Amostra <?=h($sample['sample_code'])?></h1><p>Paciente: <a href="index.php?page=patient&id=<?=$sample['patient_id']?>"><?=h($sample['patient_name'])?></a> · Protocolo: <?=h($sample['protocol_name']?:'não definido')?></p>
     <p><a class="button" href="sample_analysis.php?sample_id=<?=$id?>">Análise consolidada dos campos</a></p>
     <div class="grid"><section class="card"><h2>Contagem manual</h2><form method="post">
     <input type="hidden" name="csrf" value="<?=h(csrf_token())?>"><input type="hidden" name="action" value="manual_count"><input type="hidden" name="sample_id" value="<?=$id?>">
-    <label>Componente<select name="component_code"><option value="hemacia">Hemácia</option><option value="leucocito">Leucócito</option><option value="plaqueta">Plaqueta</option><option value="outro">Outro</option></select></label>
-    <label>Nome do componente<input name="component_name" value="Hemácia"></label><label>Quantidade<input type="number" min="0" name="quantity" required></label>
-    <label>Unidade<input name="unit" value="células/campo"></label><label>Escala<input name="scale_label" placeholder="Ex.: 40x"></label>
+    <label>Componente<select name="item_type_id"><?php foreach($countItems as $item):?><option value="<?=$item['id']?>"><?=h($item['name'])?> · <?=h($item['default_unit'])?></option><?php endforeach;?></select></label>
+    <label>Quantidade<input type="number" min="0" name="quantity" required></label>
+    <label>Escala<input name="scale_label" placeholder="Ex.: 40x"></label>
     <label>Magnificação<input type="number" step="0.001" name="magnification"></label><label>Observações<textarea name="notes"></textarea></label><button>Registrar contagem</button></form></section></div>
     <h2>Contagens</h2><table><tr><th>Data</th><th>Origem</th><th>Método</th><th>Escala</th><th>Componentes</th></tr>
     <?php foreach($counts as $c):?><tr><td><a href="index.php?page=count&id=<?=$c['id']?>"><?=h($c['created_at'])?></a></td><td><?=h($c['source'])?></td><td><?=h($c['method'])?></td><td><?=h($c['scale_label'])?></td><td><?=h($c['components'])?></td></tr><?php endforeach;?></table>

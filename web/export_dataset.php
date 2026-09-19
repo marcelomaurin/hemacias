@@ -32,6 +32,101 @@ $st=db()->query(
 );
 $images=$st->fetchAll();
 
+if(!$images){
+    http_response_code(422);
+    exit('Não há imagens aprovadas, incluídas e com split definido para exportar.');
+}
+
+// Pré-validação científica e estrutural do dataset.
+$splitCounts=['TRAIN'=>0,'VAL'=>0,'TEST'=>0];
+$patientSplits=[];
+$sampleSplits=[];
+$problems=[];
+$classIds=[];
+
+foreach($classes as $code=>$meta){
+    $id=(int)$meta['id'];
+    if(isset($classIds[$id]) && $classIds[$id]!==$code){
+        $problems[]="ID YOLO duplicado {$id}: {$classIds[$id]} e {$code}.";
+    }
+    $classIds[$id]=$code;
+}
+
+$stMeta=db()->prepare(
+    "SELECT i.id,i.width_px,i.height_px,i.stored_name,d.split_set,s.id sample_id,p.id patient_id
+     FROM sample_images i
+     JOIN dataset_items d ON d.image_id=i.id
+     JOIN samples s ON s.id=i.sample_id
+     JOIN patients p ON p.id=s.patient_id
+     WHERE i.id=?"
+);
+$stPending=db()->prepare(
+    "SELECT COUNT(*) FROM image_annotations
+     WHERE image_id=? AND review_status<>'APROVADA'"
+);
+$stAnn=db()->prepare(
+    "SELECT class_code,polygon_json FROM image_annotations
+     WHERE image_id=? AND review_status='APROVADA'"
+);
+
+foreach($images as $image){
+    $imageId=(int)$image['id'];
+    $split=(string)$image['split_set'];
+    $splitCounts[$split]++;
+
+    $stMeta->execute([$imageId]);
+    $meta=$stMeta->fetch();
+    if(!$meta){$problems[]="Imagem {$imageId} sem metadados.";continue;}
+
+    $patientSplits[(int)$meta['patient_id']][$split]=true;
+    $sampleSplits[(int)$meta['sample_id']][$split]=true;
+
+    if((int)$meta['width_px']<1 || (int)$meta['height_px']<1){
+        $problems[]="Imagem {$imageId} sem dimensões válidas.";
+    }
+
+    $stPending->execute([$imageId]);
+    if((int)$stPending->fetchColumn()>0){
+        $problems[]="Imagem {$imageId} possui anotações ainda não aprovadas.";
+    }
+
+    $stAnn->execute([$imageId]);
+    foreach($stAnn->fetchAll() as $a){
+        $code=(string)$a['class_code'];
+        if(!isset($classes[$code])){
+            $problems[]="Imagem {$imageId}: classe {$code} não possui ID YOLO ativo.";
+            continue;
+        }
+        $points=json_decode((string)$a['polygon_json'],true);
+        if(!is_array($points) || count($points)<3){
+            $problems[]="Imagem {$imageId}: polígono inválido na classe {$code}.";
+        }
+    }
+}
+
+foreach($patientSplits as $patientId=>$splits){
+    if(count($splits)>1){
+        $problems[]="Vazamento: paciente {$patientId} aparece em mais de um split (".implode(',',array_keys($splits)).").";
+    }
+}
+foreach($sampleSplits as $sampleId=>$splits){
+    if(count($splits)>1){
+        $problems[]="Vazamento: amostra {$sampleId} aparece em mais de um split (".implode(',',array_keys($splits)).").";
+    }
+}
+foreach(['TRAIN','VAL','TEST'] as $split){
+    if($splitCounts[$split]===0){
+        $problems[]="Split {$split} está vazio.";
+    }
+}
+
+if($problems){
+    http_response_code(422);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "Exportação bloqueada por inconsistências:\n\n- ".implode("\n- ",array_values(array_unique($problems)));
+    exit;
+}
+
 $tmp=tempnam(sys_get_temp_dir(),'hemacias_dataset_');
 $zip=new ZipArchive();
 if($zip->open($tmp,ZipArchive::OVERWRITE)!==true){
@@ -75,10 +170,18 @@ foreach($images as $image){
 $yaml="path: .\ntrain: images/train\nval: images/val\ntest: images/test\nnames:\n";
 foreach($classes as $meta){$yaml.="  {$meta['id']}: {$meta['name']}\n";}
 $zip->addFromString('dataset.yaml',$yaml);
+$latestRun=db()->query(
+    "SELECT id,group_mode,train_ratio,val_ratio,test_ratio,seed_value,eligible_images,group_count,
+            train_images,val_images,test_images,created_at
+     FROM dataset_split_runs ORDER BY created_at DESC,id DESC LIMIT 1"
+)->fetch()?:null;
+
 $zip->addFromString('manifest.json',json_encode([
     'generated_at'=>date(DATE_ATOM),
     'counts'=>$countBySplit,
     'classes'=>$classes,
+    'split_provenance'=>$latestRun,
+    'leakage_policy'=>'patient_and_sample_must_not_cross_splits',
 ],JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT));
 $zip->close();
 

@@ -57,6 +57,8 @@ def parse_args():
     parser.add_argument("--sex", help="Sexo/descrição")
     parser.add_argument("--document", help="Documento/identificador opcional")
     parser.add_argument("--sample-code", help="Código da amostra")
+    parser.add_argument("--protocol-code", default="sangue_padrao",
+                        help="Código do protocolo de contagem cadastrado no servidor.")
     parser.add_argument("--scale-label", default="40x", help="Escala/objetiva registrada")
     parser.add_argument("--magnification", type=float, default=40.0, help="Magnificação")
     parser.add_argument("--pixel-size-um", type=float, default=None, help="Tamanho de pixel calibrado em µm")
@@ -120,6 +122,8 @@ def main() -> int:
 
     api = None
     sample_id = None
+    resource_items = {}
+    active_protocol = None
     if args.api_url or args.api_key:
         if not args.api_url or not args.api_key:
             print("Erro: --api-url e --api-key devem ser informados juntos.")
@@ -145,8 +149,34 @@ def main() -> int:
             sample_id = api.create_sample(
                 patient_id=patient_id,
                 sample_code=sample_code,
+                protocol_code=args.protocol_code,
             )
-            print(f"Paciente {patient_id} / amostra {sample_id} vinculados ao servidor.")
+            config = api.get_configuration(sample_id=sample_id)
+            active_protocol = next(
+                (
+                    p for p in config.get("protocols", [])
+                    if config.get("sample", {}).get("protocol_id") == p.get("id")
+                ),
+                None,
+            )
+            protocol_items = (
+                active_protocol.get("items", [])
+                if active_protocol
+                else config.get("items", [])
+            )
+            resource_items = {
+                str(item.get("code", "")).casefold(): item
+                for item in protocol_items
+                if item.get("code")
+            }
+            print(
+                f"Paciente {patient_id} / amostra {sample_id} vinculados ao servidor"
+                + (
+                    f" · protocolo {active_protocol.get('name')}"
+                    if active_protocol else ""
+                )
+                + "."
+            )
         except RuntimeError as exc:
             print(f"Erro ao preparar registro remoto: {exc}")
             return 4
@@ -219,41 +249,54 @@ def main() -> int:
                     if args.method == "yolo":
                         grouped = result.cells_by_class()
                         components = []
-                        display_names = {
-                            "hemacia": "Hemácia",
-                            "leucocito": "Leucócito",
-                            "plaqueta": "Plaqueta",
-                            "artefato": "Artefato",
-                        }
                         for class_name, cells in sorted(grouped.items()):
-                            confidences = [cell.confidence for cell in cells]
+                            code = class_name.casefold()
+                            cfg = resource_items.get(code, {})
+                            if cfg and not bool(cfg.get("ai_enabled", True)):
+                                continue
+                            threshold = float(
+                                cfg.get("confidence_threshold", args.confidence)
+                            )
+                            accepted_cells = [
+                                cell for cell in cells
+                                if cell.confidence >= threshold
+                            ]
+                            if not accepted_cells:
+                                continue
+                            confidences = [cell.confidence for cell in accepted_cells]
                             components.append(
                                 {
-                                    "code": class_name.casefold(),
-                                    "name": display_names.get(class_name.casefold(), class_name),
-                                    "quantity": len(cells),
-                                    "unit": "objetos/campo",
-                                    "confidence": (
-                                        sum(confidences) / len(confidences)
-                                        if confidences else None
-                                    ),
+                                    "code": code,
+                                    "name": cfg.get("name", class_name),
+                                    "quantity": len(accepted_cells),
+                                    "unit": cfg.get("default_unit", "objetos/campo"),
+                                    "confidence": sum(confidences) / len(confidences),
                                     "metadata": {
-                                        "detections": [cell.as_dict() for cell in cells],
+                                        "detections": [
+                                            cell.as_dict() for cell in accepted_cells
+                                        ],
+                                        "configured_threshold": threshold,
+                                        "raw_detected": len(cells),
                                         "stable_count_displayed": result.stable_counts_by_class.get(
                                             class_name, len(cells)
                                         ),
                                         "method": args.method,
                                         "model": args.model,
+                                        "protocol": (
+                                            active_protocol.get("code")
+                                            if active_protocol else None
+                                        ),
                                     },
                                 }
                             )
                     else:
+                        cfg = resource_items.get("hemacia", {})
                         components = [
                             {
                                 "code": "hemacia",
-                                "name": "Hemácia",
+                                "name": cfg.get("name", "Hemácia"),
                                 "quantity": result.instant_count,
-                                "unit": "células/campo",
+                                "unit": cfg.get("default_unit", "células/campo"),
                                 "metadata": {
                                     "detections": (
                                         [cell.as_dict() for cell in result.cells]
@@ -265,6 +308,10 @@ def main() -> int:
                                     ),
                                     "stable_count_displayed": result.stable_count,
                                     "method": args.method,
+                                    "protocol": (
+                                        active_protocol.get("code")
+                                        if active_protocol else None
+                                    ),
                                 },
                             }
                         ]
@@ -278,7 +325,7 @@ def main() -> int:
                             if args.method == "hough"
                             else ("opencv-watershed" if args.method == "watershed" else "yolo-seg")
                         ),
-                        algorithm_version="1.4",
+                        algorithm_version="1.5",
                         scale_label=args.scale_label,
                         magnification=args.magnification,
                         pixel_size_um=args.pixel_size_um,

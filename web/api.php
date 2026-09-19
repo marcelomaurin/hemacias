@@ -206,6 +206,133 @@ try {
         json_response(['ok'=>true,'models'=>array_values($models)]);
     }
 
+    if ($action === 'validation_data') {
+        $d=json_input();
+        $modelId=(int)($d['model_id']??$_GET['model_id']??0);
+        if($modelId<1) json_response(['ok'=>false,'error'=>'model_id obrigatório'],422);
+
+        $st=db()->prepare('SELECT id,code,name,version,status FROM ai_models WHERE id=?');
+        $st->execute([$modelId]);
+        $model=$st->fetch();
+        if(!$model) json_response(['ok'=>false,'error'=>'Modelo não encontrado'],404);
+
+        $st=db()->prepare(
+            "SELECT i.id image_id,i.width_px,i.height_px,i.original_name,i.count_id,
+                    s.id sample_id,s.patient_id
+             FROM sample_images i
+             JOIN counts c ON c.id=i.count_id
+             JOIN samples s ON s.id=i.sample_id
+             JOIN dataset_items di ON di.image_id=i.id
+             WHERE c.model_id=?
+               AND di.review_state IN ('REVISADA','APROVADA')
+               AND EXISTS(
+                 SELECT 1 FROM image_annotations ia
+                 WHERE ia.image_id=i.id AND ia.source='MANUAL' AND ia.review_status='APROVADA'
+               )
+             ORDER BY i.id"
+        );
+        $st->execute([$modelId]);
+        $images=[];
+        foreach($st->fetchAll() as $img){
+            $imageId=(int)$img['image_id'];
+
+            $gtSt=db()->prepare(
+                "SELECT class_code,polygon_json
+                 FROM image_annotations
+                 WHERE image_id=? AND source='MANUAL' AND review_status='APROVADA'
+                 ORDER BY id"
+            );
+            $gtSt->execute([$imageId]);
+            $gt=[];
+            foreach($gtSt->fetchAll() as $row){
+                $poly=json_decode((string)$row['polygon_json'],true);
+                if(!is_array($poly)||count($poly)<3) continue;
+                $gt[]=['class_code'=>$row['class_code'],'polygon'=>$poly];
+            }
+
+            $predSt=db()->prepare(
+                'SELECT component_code,metadata_json FROM count_components WHERE count_id=? ORDER BY id'
+            );
+            $predSt->execute([(int)$img['count_id']]);
+            $pred=[];
+            foreach($predSt->fetchAll() as $row){
+                $meta=json_decode((string)($row['metadata_json']??''),true);
+                if(!is_array($meta)||!is_array($meta['detections']??null)) continue;
+                foreach($meta['detections'] as $det){
+                    $poly=$det['polygon']??null;
+                    if(is_string($poly)){
+                        $pts=[];
+                        foreach(explode('|',$poly) as $token){
+                            $xy=explode(':',$token,2);
+                            if(count($xy)===2) $pts[]=[(float)$xy[0],(float)$xy[1]];
+                        }
+                        $poly=$pts;
+                    }
+                    if(!is_array($poly)||count($poly)<3){
+                        $x1=(float)($det['x1']??0);$y1=(float)($det['y1']??0);
+                        $x2=(float)($det['x2']??0);$y2=(float)($det['y2']??0);
+                        if($x2>$x1 && $y2>$y1){
+                            $poly=[[$x1,$y1],[$x2,$y1],[$x2,$y2],[$x1,$y2]];
+                        }
+                    }
+                    if(!is_array($poly)||count($poly)<3) continue;
+                    $pred[]=[
+                        'class_code'=>(string)$row['component_code'],
+                        'confidence'=>isset($det['confidence'])?(float)$det['confidence']:null,
+                        'polygon'=>$poly,
+                    ];
+                }
+            }
+
+            $images[]=[
+                'image_id'=>$imageId,
+                'sample_id'=>(int)$img['sample_id'],
+                'patient_id'=>(int)$img['patient_id'],
+                'name'=>$img['original_name'],
+                'width'=>(int)$img['width_px'],
+                'height'=>(int)$img['height_px'],
+                'ground_truth'=>$gt,
+                'predictions'=>$pred,
+            ];
+        }
+
+        json_response(['ok'=>true,'model'=>$model,'images'=>$images]);
+    }
+
+    if ($action === 'validation_run_register') {
+        $d=json_input();
+        $modelId=(int)($d['model_id']??0);
+        if($modelId<1) json_response(['ok'=>false,'error'=>'model_id obrigatório'],422);
+        $st=db()->prepare(
+            'INSERT INTO ai_model_validation_runs(
+                model_id,iou_threshold,reviewed_images,total_gt,total_predictions,
+                true_positives,false_positives,false_negatives,
+                precision_value,recall_value,f1_value,mae_value,bias_value,mape_value,
+                class_metrics_json,config_json,notes
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        );
+        $st->execute([
+            $modelId,
+            $d['iou_threshold']??0.5,
+            $d['reviewed_images']??0,
+            $d['total_gt']??0,
+            $d['total_predictions']??0,
+            $d['tp']??0,
+            $d['fp']??0,
+            $d['fn']??0,
+            $d['precision']??null,
+            $d['recall']??null,
+            $d['f1']??null,
+            $d['mae']??null,
+            $d['bias']??null,
+            $d['mape']??null,
+            json_encode($d['class_metrics']??[],JSON_UNESCAPED_UNICODE),
+            json_encode($d['config']??[],JSON_UNESCAPED_UNICODE),
+            $d['notes']??null,
+        ]);
+        json_response(['ok'=>true,'validation_run_id'=>(int)db()->lastInsertId()]);
+    }
+
     if ($action === 'annotations_save') {
         $d=json_input();
         $imageId=(int)($d['image_id']??0);

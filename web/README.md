@@ -77,3 +77,33 @@ Para produção:
 - não reutilize a `install_key`;
 - mantenha PHP/MySQL atualizados;
 - defina política institucional de acesso e retenção dos dados.
+
+
+## Anotação e revisão de imagens
+
+O gerenciador possui uma tela de anotação por imagem:
+
+```text
+annotation.php?image_id=ID
+```
+
+Ela permite:
+
+- desenhar polígonos diretamente sobre a imagem;
+- classificar como hemácia, leucócito, plaqueta, artefato ou outro;
+- importar as detecções automáticas existentes para revisão;
+- excluir falsos positivos;
+- desenhar objetos ausentes (falsos negativos);
+- salvar a revisão sem alterar o resultado automático original;
+- exportar as anotações aprovadas em LabelMe JSON;
+- exportar em YOLO Segmentation TXT.
+
+Para um banco já existente, execute:
+
+```sql
+web/migrations/002_annotations.sql
+```
+
+Instalações novas já recebem essas tabelas por `schema.sql`.
+
+As tabelas `image_annotations` e `annotation_revisions` registram os polígonos revisados, usuário e histórico da revisão.

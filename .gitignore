@@ -10,3 +10,7 @@ env/
 .DS_Store
 Thumbs.db
 *.log
+
+web/config.php
+web/uploads/*
+!web/uploads/.htaccess

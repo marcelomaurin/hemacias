@@ -8,6 +8,7 @@ import cv2
 
 from hemacias.camera import list_video_devices, open_camera
 from hemacias.counter import CellCounter, CounterConfig
+from hemacias.watershed import WatershedCounter, WatershedConfig
 from hemacias.api_client import HemaciasApiClient
 
 
@@ -31,6 +32,12 @@ def parse_args():
                         help="Limiar do acumulador do Hough.")
     parser.add_argument("--focus", type=float, default=35.0,
                         help="Foco mínimo aceito antes de contar.")
+    parser.add_argument("--method", choices=("hough", "watershed"), default="watershed",
+                        help="Método de detecção (padrão: watershed).")
+    parser.add_argument("--min-circularity", type=float, default=0.30,
+                        help="Circularidade mínima usada pelo watershed.")
+    parser.add_argument("--distance-ratio", type=float, default=0.38,
+                        help="Separação de centros no watershed (0-1).")
     parser.add_argument("--history", type=int, default=15,
                         help="Número de frames usados para estabilizar a contagem.")
     parser.add_argument("--width", type=int, default=None,
@@ -65,16 +72,29 @@ def main() -> int:
             print(f"  {index}: {backend}")
         return 0
 
-    config = CounterConfig(
-        min_radius=args.min_radius,
-        max_radius=args.max_radius,
-        min_distance=args.min_distance,
-        hough_param1=args.param1,
-        hough_param2=args.param2,
-        min_focus_score=args.focus,
-        history_size=args.history,
-    )
-    counter = CellCounter(config)
+    if args.method == "hough":
+        counter = CellCounter(
+            CounterConfig(
+                min_radius=args.min_radius,
+                max_radius=args.max_radius,
+                min_distance=args.min_distance,
+                hough_param1=args.param1,
+                hough_param2=args.param2,
+                min_focus_score=args.focus,
+                history_size=args.history,
+            )
+        )
+    else:
+        counter = WatershedCounter(
+            WatershedConfig(
+                min_radius=args.min_radius,
+                max_radius=args.max_radius,
+                min_circularity=args.min_circularity,
+                distance_ratio=args.distance_ratio,
+                min_focus_score=args.focus,
+                history_size=args.history,
+            )
+        )
 
     api = None
     sample_id = None
@@ -162,17 +182,22 @@ def main() -> int:
                                 "quantity": result.instant_count,
                                 "unit": "células/campo",
                                 "metadata": {
-                                    "detections": [
-                                        {"x": x, "y": y, "radius_px": radius}
-                                        for x, y, radius in result.circles
-                                    ],
+                                    "detections": (
+                                        [cell.as_dict() for cell in result.cells]
+                                        if hasattr(result, "cells")
+                                        else [
+                                            {"x": x, "y": y, "radius_px": radius}
+                                            for x, y, radius in result.circles
+                                        ]
+                                    ),
                                     "stable_count_displayed": result.stable_count,
+                                    "method": args.method,
                                 },
                             }
                         ],
                         image_path=temp_path,
-                        method="opencv-hough",
-                        algorithm_version="1.1",
+                        method=("opencv-hough" if args.method == "hough" else "opencv-watershed"),
+                        algorithm_version="1.2",
                         scale_label=args.scale_label,
                         magnification=args.magnification,
                         pixel_size_um=args.pixel_size_um,

@@ -305,3 +305,36 @@ python tools/evaluate_counts.py referencia_multiclasse.csv \
 ```
 
 A ferramenta mostra MAE, viés e MAPE geral e por classe.
+
+
+## Pipeline Blood Seg
+
+O treinamento multiclasse pode ser executado de forma reproduzível com:
+
+```bash
+python tools/blood_seg_pipeline.py \
+  --version v1 \
+  --dataset-ref dataset-2026-09-19-v1 \
+  --data datasets/hemacias_seg/dataset.yaml \
+  --api-url https://servidor/hemacias/web \
+  --api-key SUA_CHAVE \
+  --epochs 100 \
+  --imgsz 1024 \
+  --batch 8 \
+  --device 0 \
+  --reference-csv referencia_multiclasse.csv
+```
+
+O pipeline:
+
+1. valida a existência de labels de treino e validação;
+2. treina o YOLO Segmentation;
+3. localiza `best.pt`;
+4. calcula SHA-256;
+5. registra `Blood Seg <versão>` como `VALIDACAO`;
+6. publica métricas globais de segmentação retornadas pelo Ultralytics;
+7. quando `--reference-csv` é fornecido, executa a comparação de contagem manual x automática;
+8. publica MAE, viés e MAPE global e por componente;
+9. mantém o modelo em `VALIDACAO` até aprovação explícita no gerenciador.
+
+O script não promove automaticamente um modelo para `APROVADO`.

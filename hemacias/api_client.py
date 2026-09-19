@@ -38,6 +38,15 @@ class HemaciasApiClient:
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"API HTTP {exc.code}: {detail}") from exc
 
+    def get_configuration(self, *, sample_id: int | None = None) -> dict[str, Any]:
+        action = "config"
+        if sample_id is not None:
+            action += "&sample_id=" + urllib.parse.quote(str(sample_id))
+        data = self._request_json(action, {})
+        if not data.get("ok"):
+            raise RuntimeError(data.get("error", "Falha ao carregar configuração."))
+        return data
+
     def upsert_patient(
         self,
         *,
@@ -47,6 +56,8 @@ class HemaciasApiClient:
         sex: str | None = None,
         document: str | None = None,
         notes: str | None = None,
+        protocol_id: int | None = None,
+        protocol_code: str | None = None,
     ) -> int:
         data = self._request_json(
             "patient_upsert",
@@ -57,6 +68,8 @@ class HemaciasApiClient:
                 "sex": sex,
                 "document": document,
                 "notes": notes,
+                "protocol_id": protocol_id,
+                "protocol_code": protocol_code,
             },
         )
         if not data.get("ok"):

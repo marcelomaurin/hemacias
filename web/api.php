@@ -210,7 +210,7 @@ try {
         $modelId=(int)($d['model_id']??0);
         $modelVersion=null;$modelSha=null;
         if($modelId>0){
-            $stModel=$pdo->prepare('SELECT version,sha256 FROM ai_models WHERE id=?');
+            $stModel=$pdo->prepare("SELECT version,sha256,status FROM ai_models WHERE id=? AND status IN ('VALIDACAO','APROVADO')");
             $stModel->execute([$modelId]);
             $modelRow=$stModel->fetch();
             if(!$modelRow) throw new RuntimeException('Modelo informado não existe.');

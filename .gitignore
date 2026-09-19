@@ -14,3 +14,9 @@ Thumbs.db
 web/config.php
 web/uploads/*
 !web/uploads/.htaccess
+
+datasets/*
+!datasets/.gitkeep
+runs/
+*.pt
+*.onnx

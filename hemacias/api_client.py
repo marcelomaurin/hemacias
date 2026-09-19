@@ -98,12 +98,14 @@ class HemaciasApiClient:
         mape: float | None = None,
         sample_count: int | None = None,
         notes: str | None = None,
+        metric_origin: str = "MANUAL",
     ) -> None:
         data = self._request_json(
             "model_metric_upsert",
             {
                 "model_id": model_id,
                 "component_code": component_code,
+                "metric_origin": metric_origin,
                 "precision": precision,
                 "recall": recall,
                 "f1": f1,

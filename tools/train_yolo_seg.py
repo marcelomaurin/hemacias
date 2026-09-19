@@ -33,6 +33,20 @@ def main() -> int:
             "Execute tools/labelme_to_yolo_seg.py primeiro."
         )
 
+    dataset_root = args.data.parent
+    train_labels = list((dataset_root / "labels" / "train").glob("*.txt"))
+    val_labels = list((dataset_root / "labels" / "val").glob("*.txt"))
+    if not train_labels:
+        raise SystemExit("Treinamento bloqueado: não há labels em labels/train.")
+    if not val_labels:
+        raise SystemExit(
+            "Treinamento bloqueado: não há labels em labels/val. "
+            "A validação é obrigatória para este projeto."
+        )
+
+    print(f"Labels de treino: {len(train_labels)}")
+    print(f"Labels de validação: {len(val_labels)}")
+
     try:
         from ultralytics import YOLO
     except ImportError as exc:

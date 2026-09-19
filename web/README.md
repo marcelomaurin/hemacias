@@ -369,3 +369,22 @@ compare_models.php
 ```
 
 Selecione dois ou mais modelos para visualizar lado a lado identificação, dataset, parâmetros e métricas globais/por componente. A tela não promove automaticamente um modelo; a alteração para `APROVADO` permanece uma ação administrativa explícita.
+
+
+## Controles de qualidade do dataset
+
+A revisão humana salva transforma os objetos mantidos em anotações `APROVADA`. A imagem permanece `REVISADA` até a aprovação final no gerenciador de dataset.
+
+A importação automática não sobrescreve uma revisão humana sem uma confirmação explícita de reinicialização.
+
+A divisão automática usa **PATIENT** como modo recomendado para validação. A exportação YOLO executa preflight e é bloqueada se detectar, entre outros problemas:
+
+- paciente em mais de um split;
+- amostra em mais de um split;
+- TRAIN/VAL/TEST vazio;
+- anotações pendentes em imagem aprovada;
+- dimensões inválidas;
+- classe sem ID YOLO;
+- ID YOLO duplicado.
+
+O `manifest.json` exportado registra a proveniência do split e a política de vazamento utilizada.

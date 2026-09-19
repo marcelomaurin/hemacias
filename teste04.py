@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import tempfile
 from pathlib import Path
 
@@ -81,6 +82,7 @@ def main() -> int:
             print(f"  {index}: {backend}")
         return 0
 
+    counter = None
     if args.method == "hough":
         counter = CellCounter(
             CounterConfig(
@@ -104,26 +106,12 @@ def main() -> int:
                 history_size=args.history,
             )
         )
-    else:
-        if not args.model:
-            print("Erro: --model é obrigatório quando --method yolo.")
-            return 5
-        try:
-            counter = YoloSegCounter(
-                args.model,
-                confidence=args.confidence,
-                iou=args.iou,
-                min_focus_score=args.focus,
-                history_size=args.history,
-            )
-        except RuntimeError as exc:
-            print(f"Erro ao carregar modelo: {exc}")
-            return 5
 
     api = None
     sample_id = None
     resource_items = {}
     active_protocol = None
+    model_registry = None
     if args.api_url or args.api_key:
         if not args.api_url or not args.api_key:
             print("Erro: --api-url e --api-key devem ser informados juntos.")
@@ -170,17 +158,87 @@ def main() -> int:
                 for item in protocol_items
                 if item.get("code")
             }
+            if active_protocol and active_protocol.get("default_model_id"):
+                model_registry = {
+                    "id": int(active_protocol["default_model_id"]),
+                    "code": active_protocol.get("model_code"),
+                    "name": active_protocol.get("model_name"),
+                    "version": active_protocol.get("model_version"),
+                    "status": active_protocol.get("model_status"),
+                    "path": active_protocol.get("model_path"),
+                    "sha256": active_protocol.get("model_sha256"),
+                    "imgsz": active_protocol.get("model_imgsz"),
+                }
             print(
                 f"Paciente {patient_id} / amostra {sample_id} vinculados ao servidor"
                 + (
                     f" · protocolo {active_protocol.get('name')}"
                     if active_protocol else ""
                 )
+                + (
+                    f" · modelo {model_registry.get('name')} {model_registry.get('version')}"
+                    if model_registry else ""
+                )
                 + "."
             )
         except RuntimeError as exc:
             print(f"Erro ao preparar registro remoto: {exc}")
             return 4
+
+    if args.method == "yolo":
+        selected_model = args.model or (
+            model_registry.get("path") if model_registry else None
+        )
+        if not selected_model:
+            print(
+                "Erro: nenhum modelo YOLO foi informado e o protocolo "
+                "não possui modelo padrão configurado."
+            )
+            return 5
+
+        selected_path = Path(selected_model)
+        if not selected_path.exists():
+            print(f"Erro: modelo YOLO não encontrado: {selected_path}")
+            return 5
+
+        using_registered_model = bool(
+            model_registry
+            and Path(str(model_registry.get("path"))) == selected_path
+        )
+        if using_registered_model:
+            status = str(model_registry.get("status") or "")
+            if status not in {"VALIDACAO", "APROVADO"}:
+                print(f"Erro: modelo cadastrado está com status {status}.")
+                return 5
+
+            expected_sha = str(model_registry.get("sha256") or "").lower()
+            if expected_sha:
+                sha = hashlib.sha256()
+                with selected_path.open("rb") as fp:
+                    for chunk in iter(lambda: fp.read(1024 * 1024), b""):
+                        sha.update(chunk)
+                actual_sha = sha.hexdigest()
+                if actual_sha != expected_sha:
+                    print(
+                        "Erro: SHA-256 do modelo não confere com o cadastro. "
+                        f"Esperado={expected_sha} obtido={actual_sha}"
+                    )
+                    return 5
+
+        try:
+            counter = YoloSegCounter(
+                selected_path,
+                confidence=args.confidence,
+                iou=args.iou,
+                min_focus_score=args.focus,
+                history_size=args.history,
+            )
+        except RuntimeError as exc:
+            print(f"Erro ao carregar modelo: {exc}")
+            return 5
+
+        if not using_registered_model:
+            model_registry = None
 
     try:
         cap = open_camera(args.index, args.width, args.height)
@@ -334,7 +392,11 @@ def main() -> int:
                             if args.method == "hough"
                             else ("opencv-watershed" if args.method == "watershed" else "yolo-seg")
                         ),
-                        algorithm_version="1.5",
+                        algorithm_version="1.6",
+                        model_id=(
+                            model_registry.get("id")
+                            if args.method == "yolo" and model_registry else None
+                        ),
                         scale_label=(
                             args.scale_label
                             or (

@@ -186,6 +186,20 @@ begin
   Result := StrToFloatDef(StringReplace(D.AsString, ',', '.', [rfReplaceAll]), ADefault, FS);
 end;
 
+function ObjBool(AObj: TJSONObject; const AName: string; ADefault: Boolean = False): Boolean;
+var
+  D: TJSONData;
+  S: string;
+begin
+  Result := ADefault;
+  if AObj = nil then Exit;
+  D := AObj.Find(AName);
+  if (D = nil) or (D.JSONType = jtNull) then Exit;
+  if D.JSONType = jtBoolean then Exit(D.AsBoolean);
+  S := LowerCase(Trim(D.AsString));
+  Result := (S='1') or (S='true') or (S='yes') or (S='sim');
+end;
+
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
   Caption := 'Analisador de Lâminas - Lazarus AI Suite';
@@ -1044,9 +1058,12 @@ begin
     ShowMessage('Não foi possível avaliar a qualidade da imagem.');
     Exit;
   end;
-  Log(Format('Qualidade: %s | score %.1f | foco %.1f%s',
-    [FQualityStatus, FQualityScore, FFocusScore,
-     IfThen(FQualityReason<>'', ' | '+FQualityReason, '')]));
+  if FQualityReason <> '' then
+    Log(Format('Qualidade: %s | score %.1f | foco %.1f | %s',
+      [FQualityStatus, FQualityScore, FFocusScore, FQualityReason]))
+  else
+    Log(Format('Qualidade: %s | score %.1f | foco %.1f',
+      [FQualityStatus, FQualityScore, FFocusScore]));
   if FQualityStatus = 'REJEITADA' then
   begin
     ShowMessage('Campo rejeitado pelo controle de qualidade.' + LineEnding +
@@ -1054,6 +1071,7 @@ begin
       FQualityReason);
     BuildDeterministicReport;
     FBtnExport.Enabled := True;
+    FBtnSend.Enabled := (FSampleID > 0) and (FApi <> nil);
     Exit;
   end;
 
@@ -1166,7 +1184,7 @@ begin
   begin
     ShowMessage('Vincule paciente e amostra antes de enviar.'); Exit;
   end;
-  if Length(FSummaries) = 0 then
+  if (Length(FSummaries) = 0) and (FQualityStatus <> 'REJEITADA') then
   begin
     ShowMessage('Execute a análise antes de enviar.'); Exit;
   end;
@@ -1255,7 +1273,7 @@ begin
     if D is TJSONObject then
     begin
       Totals := TJSONObject(D);
-      Ready := ObjInt(Totals, 'ready', 0) <> 0;
+      Ready := ObjBool(Totals, 'ready', False);
       S.Add(Format('Campos: %d | válidos: %d | rejeitados/excluídos: %d | revisar: %d',
         [ObjInt(Totals,'fields',0), ObjInt(Totals,'accepted',0),
          ObjInt(Totals,'rejected',0), ObjInt(Totals,'review',0)]));
@@ -1293,10 +1311,14 @@ begin
       for I := 0 to Arr.Count - 1 do
       begin
         Row := TJSONObject(Arr.Items[I]);
-        S.Add(Format('#%d | %s | qualidade=%.1f | foco=%.1f | incluído=%s',
-          [ObjInt(Row,'field_no',0), ObjStr(Row,'status',''),
-           ObjFloat(Row,'quality_score',0), ObjFloat(Row,'focus_score',0),
-           IfThen(ObjInt(Row,'included_in_summary',0)<>0,'sim','não')]));
+        if ObjInt(Row,'included_in_summary',0)<>0 then
+          S.Add(Format('#%d | %s | qualidade=%.1f | foco=%.1f | incluído=sim',
+            [ObjInt(Row,'field_no',0), ObjStr(Row,'status',''),
+             ObjFloat(Row,'quality_score',0), ObjFloat(Row,'focus_score',0)]))
+        else
+          S.Add(Format('#%d | %s | qualidade=%.1f | foco=%.1f | incluído=não',
+            [ObjInt(Row,'field_no',0), ObjStr(Row,'status',''),
+             ObjFloat(Row,'quality_score',0), ObjFloat(Row,'focus_score',0)]));
       end;
     end;
 

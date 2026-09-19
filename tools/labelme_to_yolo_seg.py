@@ -60,6 +60,7 @@ def convert_directory(
     class_names: list[str],
     val_ratio: float,
     force_split: str | None = None,
+    allow_imagepath_mismatch: bool = False,
 ) -> ConversionStats:
     stats = ConversionStats()
     class_map = {name.casefold(): idx for idx, name in enumerate(class_names)}
@@ -70,6 +71,17 @@ def convert_directory(
         height = int(data.get("imageHeight") or 0)
         if width <= 0 or height <= 0:
             continue
+
+        declared_image = Path(str(data.get("imagePath") or "")).name
+        if declared_image:
+            declared_stem = Path(declared_image).stem.casefold()
+            if declared_stem != json_path.stem.casefold() and not allow_imagepath_mismatch:
+                print(
+                    f"IGNORADA: {json_path} declara imagePath={declared_image}. "
+                    "Revise a anotação ou use --allow-imagepath-mismatch."
+                )
+                stats.skipped_shapes += len(data.get("shapes", []))
+                continue
 
         image_path = find_image(json_path, data)
         if image_path is None:
@@ -159,6 +171,11 @@ def main() -> int:
         default=["hemacia"],
         help="Classes LabelMe aceitas, na ordem dos IDs YOLO.",
     )
+    parser.add_argument(
+        "--allow-imagepath-mismatch",
+        action="store_true",
+        help="Permite converter JSON cujo imagePath não corresponde ao nome do JSON.",
+    )
     args = parser.parse_args()
 
     if not 0.0 <= args.val_ratio < 1.0:
@@ -172,6 +189,7 @@ def main() -> int:
         args.output,
         class_names=args.classes,
         val_ratio=args.val_ratio,
+        allow_imagepath_mismatch=args.allow_imagepath_mismatch,
     )
 
     test_stats = ConversionStats()
@@ -182,6 +200,7 @@ def main() -> int:
             class_names=args.classes,
             val_ratio=0.0,
             force_split="test",
+            allow_imagepath_mismatch=args.allow_imagepath_mismatch,
         )
 
     write_yaml(args.output, args.classes)

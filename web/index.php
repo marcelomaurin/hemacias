@@ -244,10 +244,9 @@ if ($page === 'count') {
       </div>
       <p><small class="muted"><?=h($img['original_name'])?> · <?=h($img['scale_label'])?> · <?=count($detections)?> identificação(ões)</small></p>
       <p><small>
-        <span style="color:#00aa00">■ Hemácia</span> ·
-        <span style="color:#008fc7">■ Leucócito</span> ·
-        <span style="color:#b89b00">■ Plaqueta</span> ·
-        <span style="color:#d12b20">■ Artefato</span>
+        <?php foreach($components as $component):?>
+          <span style="color:<?=h($component['color_hex'])?>">■ <?=h($component['component_name'])?></span> ·
+        <?php endforeach;?>
       </small></p>
       <p><a class="button" href="annotation.php?image_id=<?=$img['id']?>">Revisar / Anotar imagem</a></p>
     </div>

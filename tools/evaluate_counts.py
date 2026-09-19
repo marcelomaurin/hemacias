@@ -20,6 +20,7 @@ from hemacias.watershed import WatershedCounter, WatershedConfig
 @dataclass(slots=True)
 class RowResult:
     image: str
+    class_name: str
     manual: int
     automatic: int
 
@@ -34,15 +35,19 @@ class RowResult:
         return 100.0 * self.absolute_error / self.manual
 
 
-def load_reference(path: Path) -> list[tuple[str, int]]:
-    rows: list[tuple[str, int]] = []
+def load_reference(path: Path) -> list[tuple[str, str, int]]:
+    rows: list[tuple[str, str, int]] = []
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         required = {"image", "manual_count"}
         if not required.issubset(reader.fieldnames or []):
-            raise ValueError("CSV deve possuir colunas image,manual_count.")
+            raise ValueError("CSV deve possuir colunas image,manual_count e opcionalmente class.")
         for row in reader:
-            rows.append((row["image"], int(row["manual_count"])))
+            rows.append((
+                row["image"],
+                (row.get("class") or "hemacia").strip(),
+                int(row["manual_count"]),
+            ))
     return rows
 
 
@@ -92,7 +97,7 @@ def main() -> int:
     results: list[RowResult] = []
     base = args.csv.parent
 
-    for image_name, manual in load_reference(args.csv):
+    for image_name, class_name, manual in load_reference(args.csv):
         path = (base / image_name).resolve()
         image = cv2.imread(str(path))
         if image is None:
@@ -101,10 +106,21 @@ def main() -> int:
 
         detector.reset()
         result = detector.detect(image)
-        results.append(RowResult(image_name, manual, result.instant_count))
+        if args.method == "yolo":
+            automatic = int(result.counts_by_class.get(class_name, 0))
+        else:
+            if class_name.casefold() != "hemacia":
+                print(
+                    f"IGNORADA: {image_name} classe={class_name}; "
+                    f"{args.method} não é multiclasse."
+                )
+                continue
+            automatic = result.instant_count
+
+        results.append(RowResult(image_name, class_name, manual, automatic))
         print(
-            f"{image_name}: manual={manual} automático={result.instant_count} "
-            f"erro={abs(result.instant_count-manual)}"
+            f"{image_name} [{class_name}]: manual={manual} automático={automatic} "
+            f"erro={abs(automatic-manual)}"
         )
 
     if not results:
@@ -121,12 +137,13 @@ def main() -> int:
     with args.output.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(
-            ["image", "manual_count", "automatic_count", "absolute_error", "percentage_error"]
+            ["image", "class", "manual_count", "automatic_count", "absolute_error", "percentage_error"]
         )
         for r in results:
             writer.writerow(
                 [
                     r.image,
+                    r.class_name,
                     r.manual,
                     r.automatic,
                     r.absolute_error,
@@ -134,10 +151,23 @@ def main() -> int:
                 ]
             )
 
-    print(f"Imagens: {len(results)}")
-    print(f"MAE: {mae:.3f}")
-    print(f"Viés médio: {bias:.3f}")
-    print("MAPE: n/a" if mape is None else f"MAPE: {mape:.3f}%")
+    print(f"Linhas avaliadas: {len(results)}")
+    print(f"MAE geral: {mae:.3f}")
+    print(f"Viés médio geral: {bias:.3f}")
+    print("MAPE geral: n/a" if mape is None else f"MAPE geral: {mape:.3f}%")
+
+    classes = sorted({r.class_name for r in results})
+    for class_name in classes:
+        subset = [r for r in results if r.class_name == class_name]
+        class_mae = mean(r.absolute_error for r in subset)
+        class_bias = mean(r.automatic - r.manual for r in subset)
+        pct = [r.percentage_error for r in subset if r.percentage_error is not None]
+        class_mape = mean(pct) if pct else None
+        print(
+            f"{class_name}: n={len(subset)} MAE={class_mae:.3f} "
+            f"viés={class_bias:.3f} "
+            + ("MAPE=n/a" if class_mape is None else f"MAPE={class_mape:.3f}%")
+        )
     print(f"Detalhes: {args.output}")
     return 0
 

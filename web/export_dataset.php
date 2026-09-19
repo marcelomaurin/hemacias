@@ -8,13 +8,19 @@ if(!class_exists('ZipArchive')){
     exit('Extensão PHP ZipArchive não instalada.');
 }
 
-$classes=[
-    'hemacia'=>['id'=>0,'name'=>'hemacia'],
-    'leucocito'=>['id'=>1,'name'=>'leucocito'],
-    'plaqueta'=>['id'=>2,'name'=>'plaqueta'],
-    'artefato'=>['id'=>3,'name'=>'artefato'],
-    'outro'=>['id'=>4,'name'=>'outro'],
-];
+$classes=[];
+foreach(db()->query(
+    "SELECT code,name,yolo_class_id
+     FROM count_item_types
+     WHERE active=1 AND annotation_enabled=1 AND yolo_class_id IS NOT NULL
+     ORDER BY yolo_class_id,sort_order,name"
+)->fetchAll() as $row){
+    $classes[$row['code']]=[
+        'id'=>(int)$row['yolo_class_id'],
+        'name'=>(string)$row['code'],
+        'display_name'=>(string)$row['name'],
+    ];
+}
 
 $st=db()->query(
     "SELECT i.*,d.split_set

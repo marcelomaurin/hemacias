@@ -20,6 +20,8 @@ O projeto utiliza OpenCV para captura de vídeo, pré-processamento da imagem e 
 - `python/tools/converte/converte.py`: conversor portátil de imagens do dataset.
 - `fotos/`: imagens e anotações experimentais/LabelMe.
 - `tests/`: testes básicos do núcleo.
+- `web/`: gerenciador PHP/MySQL, API, pacientes, amostras, contagens e imagens.
+- `docs/PLANO_MELHORIAS.md`: plano de evolução técnica e validação.
 
 ## Instalação
 
@@ -73,6 +75,45 @@ Durante a execução:
 
 - `Q`: encerra.
 - `C`: limpa o histórico usado para estabilizar a contagem.
+- `S`: quando a API está configurada, registra o frame, a contagem e as detecções no gerenciador web.
+
+## Gerenciador web PHP/MySQL
+
+O diretório `web/` contém o sistema de gestão com:
+
+- autenticação e perfis;
+- cadastro de pacientes;
+- várias amostras por paciente;
+- várias contagens por amostra;
+- vários componentes sanguíneos por contagem;
+- várias imagens por amostra;
+- escala, magnificação, foco e método;
+- API autenticada por chave para integração com Python;
+- auditoria administrativa.
+
+Instalação resumida:
+
+1. importe `web/schema.sql`;
+2. copie `web/config.example.php` para `web/config.php`;
+3. configure MySQL, chaves e URL;
+4. acesse `web/install.php` para criar o primeiro administrador.
+
+Consulte `web/README.md` para os detalhes.
+
+Exemplo de integração Python:
+
+```bash
+python teste04.py \
+  --api-url https://servidor/hemacias/web \
+  --api-key SUA_CHAVE \
+  --patient-name "Paciente de teste" \
+  --patient-external-id PAC-0001 \
+  --sample-code AMOSTRA-0001 \
+  --scale-label 40x \
+  --magnification 40
+```
+
+O detector atual identifica automaticamente apenas hemácias. O banco e a API já aceitam leucócitos, plaquetas e outros componentes para contagens manuais ou futuros detectores.
 
 ## O que foi corrigido
 

@@ -96,8 +96,13 @@ foreach(db()->query(
     "SELECT mm.*,cit.name item_name,cit.code item_code
      FROM ai_model_metrics mm
      LEFT JOIN count_item_types cit ON cit.id=mm.item_type_id
-     ORDER BY mm.model_id,mm.metric_scope,cit.sort_order,cit.name"
+     ORDER BY mm.model_id,mm.metric_origin,mm.metric_scope,cit.sort_order,cit.name"
 )->fetchAll() as $m){$metrics[(int)$m['model_id']][]=$m;}
+
+$validationRuns=[];
+foreach(db()->query(
+    "SELECT * FROM ai_model_validation_runs ORDER BY model_id,created_at DESC,id DESC"
+)->fetchAll() as $vr){$validationRuns[(int)$vr['model_id']][]=$vr;}
 ?><!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Modelos de IA - Hemácias</title><link rel="stylesheet" href="assets/style.css"></head><body>
 <header><strong>Hemácias · Modelos de IA</strong><nav><a href="index.php">Dashboard</a><a href="resources.php">Recursos</a><a href="models.php">Modelos</a><a href="dataset.php">Dataset</a><a href="index.php?page=logout">Sair</a></nav></header>
@@ -132,6 +137,25 @@ foreach(db()->query(
 <p><b>Classes:</b> <?=h(implode(', ',$classes))?></p>
 <button type="button" onclick="document.getElementById('model<?=$m['id']?>').showModal()">Editar modelo</button>
 <button type="button" onclick="document.getElementById('metric<?=$m['id']?>').showModal()">Registrar métrica</button>
+
+<?php if(!empty($validationRuns[(int)$m['id']])):?>
+<h4>Validações contra ground truth</h4>
+<table><tr><th>Data</th><th>IoU</th><th>Imagens</th><th>GT</th><th>Pred.</th><th>TP</th><th>FP</th><th>FN</th><th>Precision</th><th>Recall</th><th>F1</th><th>MAE</th></tr>
+<?php foreach($validationRuns[(int)$m['id']] as $vr):?><tr>
+<td><?=h((string)$vr['created_at'])?></td>
+<td><?=h((string)$vr['iou_threshold'])?></td>
+<td><?=h((string)$vr['reviewed_images'])?></td>
+<td><?=h((string)$vr['total_gt'])?></td>
+<td><?=h((string)$vr['total_predictions'])?></td>
+<td><?=h((string)$vr['true_positives'])?></td>
+<td><?=h((string)$vr['false_positives'])?></td>
+<td><?=h((string)$vr['false_negatives'])?></td>
+<td><?=h((string)$vr['precision_value'])?></td>
+<td><?=h((string)$vr['recall_value'])?></td>
+<td><?=h((string)$vr['f1_value'])?></td>
+<td><?=h((string)$vr['mae_value'])?></td>
+</tr><?php endforeach;?></table>
+<?php endif;?>
 
 <?php if(!empty($metrics[(int)$m['id']])):?><table><tr><th>Origem</th><th>Escopo</th><th>Precision</th><th>Recall</th><th>F1</th><th>mAP50</th><th>mAP50-95</th><th>MAE</th><th>Viés</th><th>MAPE</th><th>N</th></tr>
 <?php foreach($metrics[(int)$m['id']] as $mm):?><tr>

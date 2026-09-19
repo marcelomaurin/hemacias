@@ -1,5 +1,116 @@
-# hemacias
-## projeto contador de hemácias
-O artigo que gerou este trabalho pode ser visto neste link.
+# Hemácias
+
+Projeto experimental para **detecção e contagem de hemácias em imagens de microscopia usando visão computacional**.
+
+O artigo que originou o trabalho está disponível em:
 https://maurinsoft.com.br/projeto-contagem-de-hemacias/
 
+## Situação atual
+
+O projeto utiliza OpenCV para captura de vídeo, pré-processamento da imagem e detecção circular. A versão atual foi refatorada para separar câmera, processamento e interface, corrigir o gerenciamento da câmera e estabilizar a contagem entre vários frames.
+
+> **Importante:** este projeto é experimental e educacional. A contagem automática deve ser validada contra um método de referência antes de qualquer uso laboratorial ou diagnóstico.
+
+## Estrutura
+
+- `hemacias/camera.py`: descoberta e abertura de câmeras.
+- `hemacias/counter.py`: pré-processamento, avaliação de foco, detecção e estabilização da contagem.
+- `teste04.py`: aplicação principal em tempo real.
+- `teste03.py`: experimento legado mantido para comparação.
+- `python/tools/converte/converte.py`: conversor portátil de imagens do dataset.
+- `fotos/`: imagens e anotações experimentais/LabelMe.
+- `tests/`: testes básicos do núcleo.
+
+## Instalação
+
+Requer Python 3.10 ou superior.
+
+```bash
+python -m venv .venv
+```
+
+Windows:
+
+```bat
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Linux:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Uso
+
+Listar câmeras:
+
+```bash
+python teste04.py --list-videos
+```
+
+Executar com a câmera padrão:
+
+```bash
+python teste04.py
+```
+
+Selecionar outra câmera:
+
+```bash
+python teste04.py --index 1
+```
+
+Ajustar a faixa de tamanho esperada:
+
+```bash
+python teste04.py --min-radius 15 --max-radius 35
+```
+
+Durante a execução:
+
+- `Q`: encerra.
+- `C`: limpa o histórico usado para estabilizar a contagem.
+
+## O que foi corrigido
+
+A implementação anterior mantinha como resultado o maior número de círculos encontrado desde o início da execução. Um frame com falso positivo podia, portanto, contaminar permanentemente o resultado.
+
+A versão atual mantém uma janela temporal e usa a **mediana das últimas detecções**, produzindo uma leitura mais estável.
+
+Também foram corrigidos:
+
+- abertura e liberação da câmera;
+- referência inválida a `cap` em `teste03.py`;
+- captura duplicada em `teste03.py`;
+- enumeração de câmeras;
+- caminhos absolutos de Windows no conversor;
+- funções duplicadas no conversor;
+- parâmetros fixos expostos agora pela linha de comando;
+- avaliação simples de foco antes da contagem;
+- organização do código em módulos reutilizáveis.
+
+## Dataset
+
+O repositório já possui imagens de treino/teste e anotações LabelMe com a classe `hemacia`. Esse material pode ser usado em uma próxima etapa para comparar:
+
+1. Hough Circles;
+2. segmentação clássica com watershed;
+3. segmentação supervisionada (por exemplo, YOLO Segmentation).
+
+A separação de treino, validação e teste deve ser feita por campo/imagem de origem para evitar vazamento de dados.
+
+## Próximos passos recomendados
+
+- calibração por câmera/microscópio;
+- implementação de watershed para células sobrepostas;
+- ferramenta de avaliação contra contagem manual;
+- conversão das anotações LabelMe para formato de treinamento;
+- métricas MAE, erro percentual, precisão, recall e F1;
+- interface gráfica e exportação de resultados.
+
+## Licença
+
+Defina uma licença antes de distribuir ou reutilizar o projeto externamente.

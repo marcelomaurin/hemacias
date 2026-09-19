@@ -317,3 +317,37 @@ Para bancos existentes, execute:
 ```sql
 web/migrations/006_count_resources.sql
 ```
+
+
+## Gestão de modelos de IA
+
+Acesse:
+
+```text
+models.php
+```
+
+O cadastro registra versão, tipo, status, caminho do arquivo, SHA-256, dataset, `imgsz`, épocas, classes e data de treinamento.
+
+Status disponíveis:
+
+```text
+TREINO
+VALIDACAO
+APROVADO
+INATIVO
+```
+
+As métricas podem ser registradas globalmente ou por componente: precision, recall, F1, mAP50, mAP50-95, MAE, viés e MAPE.
+
+Cada protocolo pode selecionar um modelo padrão. A API `config` retorna os metadados desse modelo ao cliente Python. Cada contagem armazena também uma fotografia da identidade do modelo utilizado:
+
+- `model_id`;
+- `model_version_snapshot`;
+- `model_sha256_snapshot`.
+
+Para bancos existentes, execute:
+
+```sql
+web/migrations/007_ai_models.sql
+```

@@ -18,9 +18,13 @@ try {
         )->fetchAll();
 
         $protocols=db()->query(
-            "SELECT id,code,name,min_fields,min_valid_fields,default_scale_label,
-                    default_magnification,require_quality
-             FROM count_protocols
+            "SELECT cp.id,cp.code,cp.name,cp.min_fields,cp.min_valid_fields,cp.default_scale_label,
+                    cp.default_magnification,cp.require_quality,cp.default_model_id,
+                    m.code model_code,m.name model_name,m.version model_version,m.model_type,
+                    m.status model_status,m.file_path model_path,m.sha256 model_sha256,
+                    m.dataset_ref model_dataset,m.imgsz model_imgsz,m.epochs model_epochs
+             FROM count_protocols cp
+             LEFT JOIN ai_models m ON m.id=cp.default_model_id
              WHERE active=1
              ORDER BY name"
         )->fetchAll();
@@ -52,6 +56,9 @@ try {
                 $protocol[$key]=(int)$protocol[$key];
             }
             $protocol['default_magnification']=$protocol['default_magnification']===null?null:(float)$protocol['default_magnification'];
+            $protocol['default_model_id']=$protocol['default_model_id']===null?null:(int)$protocol['default_model_id'];
+            $protocol['model_imgsz']=$protocol['model_imgsz']===null?null:(int)$protocol['model_imgsz'];
+            $protocol['model_epochs']=$protocol['model_epochs']===null?null:(int)$protocol['model_epochs'];
         }
         unset($protocol);
 
@@ -200,17 +207,29 @@ try {
         ]);
         $fieldId = (int)$pdo->lastInsertId();
 
+        $modelId=(int)($d['model_id']??0);
+        $modelVersion=null;$modelSha=null;
+        if($modelId>0){
+            $stModel=$pdo->prepare('SELECT version,sha256 FROM ai_models WHERE id=?');
+            $stModel->execute([$modelId]);
+            $modelRow=$stModel->fetch();
+            if(!$modelRow) throw new RuntimeException('Modelo informado não existe.');
+            $modelVersion=(string)$modelRow['version'];
+            $modelSha=$modelRow['sha256'];
+        }
+
         $st = $pdo->prepare(
             'INSERT INTO counts(
-                sample_id,field_id,method,algorithm_version,scale_label,magnification,pixel_size_um,
-                focus_score,image_quality,total_cells,notes,source
-             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
+                sample_id,field_id,method,algorithm_version,model_id,model_version_snapshot,model_sha256_snapshot,
+                scale_label,magnification,pixel_size_um,focus_score,image_quality,total_cells,notes,source
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
         );
         $st->execute([
             $sampleId,
             $fieldId,
             $d['method'] ?? 'opencv-hough',
             $d['algorithm_version'] ?? null,
+            $modelId?:null,$modelVersion,$modelSha,
             $d['scale_label'] ?? null,
             $d['magnification'] ?? null,
             $d['pixel_size_um'] ?? null,

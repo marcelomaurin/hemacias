@@ -39,10 +39,7 @@ class HemaciasApiClient:
             raise RuntimeError(f"API HTTP {exc.code}: {detail}") from exc
 
     def get_configuration(self, *, sample_id: int | None = None) -> dict[str, Any]:
-        action = "config"
-        if sample_id is not None:
-            action += "&sample_id=" + urllib.parse.quote(str(sample_id))
-        data = self._request_json(action, {})
+        data = self._request_json("config", {"sample_id": sample_id})
         if not data.get("ok"):
             raise RuntimeError(data.get("error", "Falha ao carregar configuração."))
         return data
@@ -56,8 +53,6 @@ class HemaciasApiClient:
         sex: str | None = None,
         document: str | None = None,
         notes: str | None = None,
-        protocol_id: int | None = None,
-        protocol_code: str | None = None,
     ) -> int:
         data = self._request_json(
             "patient_upsert",
@@ -68,8 +63,6 @@ class HemaciasApiClient:
                 "sex": sex,
                 "document": document,
                 "notes": notes,
-                "protocol_id": protocol_id,
-                "protocol_code": protocol_code,
             },
         )
         if not data.get("ok"):
@@ -84,6 +77,8 @@ class HemaciasApiClient:
         collected_at: str | None = None,
         sample_type: str = "sangue",
         notes: str | None = None,
+        protocol_id: int | None = None,
+        protocol_code: str | None = None,
     ) -> int:
         data = self._request_json(
             "sample_create",
@@ -93,6 +88,8 @@ class HemaciasApiClient:
                 "collected_at": collected_at,
                 "sample_type": sample_type,
                 "notes": notes,
+                "protocol_id": protocol_id,
+                "protocol_code": protocol_code,
             },
         )
         if not data.get("ok"):

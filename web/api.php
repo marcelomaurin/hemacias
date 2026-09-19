@@ -206,6 +206,111 @@ try {
         json_response(['ok'=>true,'models'=>array_values($models)]);
     }
 
+    if ($action === 'sample_summary') {
+        $d=json_input();
+        $sampleId=(int)($d['sample_id']??$_GET['sample_id']??0);
+        if($sampleId<1) json_response(['ok'=>false,'error'=>'sample_id obrigatório'],422);
+
+        $st=db()->prepare(
+            'SELECT s.id,s.sample_code,s.patient_id,p.name patient_name,
+                    cp.id protocol_id,cp.code protocol_code,cp.name protocol_name,
+                    cp.min_fields,cp.min_valid_fields,cp.require_quality
+             FROM samples s
+             JOIN patients p ON p.id=s.patient_id
+             LEFT JOIN count_protocols cp ON cp.id=s.protocol_id
+             WHERE s.id=?'
+        );
+        $st->execute([$sampleId]);
+        $sample=$st->fetch();
+        if(!$sample) json_response(['ok'=>false,'error'=>'Amostra não encontrada'],404);
+
+        $st=db()->prepare(
+            'SELECT mf.id,mf.field_no,mf.status,mf.quality_score,mf.focus_score,
+                    mf.quality_reason,mf.included_in_summary,
+                    c.id count_id,c.method,c.algorithm_version,c.image_quality,c.total_cells,c.created_at,
+                    i.id image_id,i.original_name
+             FROM microscopic_fields mf
+             LEFT JOIN counts c ON c.field_id=mf.id
+             LEFT JOIN sample_images i ON i.field_id=mf.id
+             WHERE mf.sample_id=?
+             ORDER BY mf.field_no'
+        );
+        $st->execute([$sampleId]);
+        $fields=$st->fetchAll();
+
+        $st=db()->prepare(
+            "SELECT cc.component_code,cc.component_name,cc.quantity,mf.field_no
+             FROM microscopic_fields mf
+             JOIN counts c ON c.field_id=mf.id
+             JOIN count_components cc ON cc.count_id=c.id
+             LEFT JOIN count_item_types cit ON cit.id=cc.item_type_id
+             LEFT JOIN count_protocol_items cpi ON cpi.item_type_id=cc.item_type_id
+               AND cpi.protocol_id=(SELECT protocol_id FROM samples WHERE id=?)
+             WHERE mf.sample_id=? AND mf.status='ACEITA' AND mf.included_in_summary=1
+               AND COALESCE(cpi.summary_enabled,cit.summary_enabled,1)=1
+             ORDER BY cc.component_code,mf.field_no"
+        );
+        $st->execute([$sampleId,$sampleId]);
+        $rows=$st->fetchAll();
+
+        $grouped=[];
+        foreach($rows as $row){
+            $code=(string)$row['component_code'];
+            $grouped[$code]['code']=$code;
+            $grouped[$code]['name']=$row['component_name'];
+            $grouped[$code]['values'][]=(float)$row['quantity'];
+        }
+        $medianFn=function(array $values): float {
+            sort($values,SORT_NUMERIC);$n=count($values);
+            if($n===0)return 0.0;$m=intdiv($n,2);
+            return $n%2?$values[$m]:($values[$m-1]+$values[$m])/2;
+        };
+        $stdFn=function(array $values): float {
+            $n=count($values);if($n<2)return 0.0;
+            $mean=array_sum($values)/$n;$sum=0.0;
+            foreach($values as $v)$sum+=($v-$mean)**2;
+            return sqrt($sum/($n-1));
+        };
+        $summary=[];
+        foreach($grouped as $g){
+            $v=$g['values'];$n=count($v);
+            $summary[]=[
+                'code'=>$g['code'],'name'=>$g['name'],'fields'=>$n,
+                'mean'=>$n?array_sum($v)/$n:0.0,
+                'median'=>$medianFn($v),
+                'min'=>$n?min($v):0.0,'max'=>$n?max($v):0.0,
+                'stddev'=>$stdFn($v),
+            ];
+        }
+
+        $accepted=0;$rejected=0;$review=0;
+        foreach($fields as &$field){
+            $field['id']=(int)$field['id'];
+            $field['field_no']=(int)$field['field_no'];
+            $field['included_in_summary']=(int)$field['included_in_summary'];
+            $field['quality_score']=$field['quality_score']===null?null:(float)$field['quality_score'];
+            $field['focus_score']=$field['focus_score']===null?null:(float)$field['focus_score'];
+            if($field['status']==='ACEITA' && $field['included_in_summary'])$accepted++;
+            elseif($field['status']==='REJEITADA' || !$field['included_in_summary'])$rejected++;
+            else $review++;
+        }
+        unset($field);
+
+        $minFields=(int)($sample['min_fields']??0);
+        $minValid=(int)($sample['min_valid_fields']??0);
+        $ready=($minValid===0 || $accepted>=$minValid) && ($minFields===0 || count($fields)>=$minFields);
+
+        json_response([
+            'ok'=>true,'sample'=>$sample,'fields'=>$fields,'summary'=>$summary,
+            'totals'=>[
+                'fields'=>count($fields),'accepted'=>$accepted,
+                'rejected'=>$rejected,'review'=>$review,
+                'min_fields'=>$minFields,'min_valid_fields'=>$minValid,
+                'ready'=>$ready
+            ]
+        ]);
+    }
+
     if ($action === 'patient_upsert') {
         $d = json_input();
         $name = trim((string)($d['name'] ?? ''));

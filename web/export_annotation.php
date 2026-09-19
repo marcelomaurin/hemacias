@@ -23,7 +23,13 @@ $height=max(1,(int)$image['height_px']);
 $base=pathinfo($image['original_name'],PATHINFO_FILENAME);
 
 if($format==='yolo'){
-    $classMap=['hemacia'=>0,'leucocito'=>1,'plaqueta'=>2,'artefato'=>3,'outro'=>4];
+    $classMap=[];
+    foreach(db()->query(
+        "SELECT code,yolo_class_id FROM count_item_types
+         WHERE active=1 AND annotation_enabled=1 AND yolo_class_id IS NOT NULL"
+    )->fetchAll() as $row){
+        $classMap[$row['code']]=(int)$row['yolo_class_id'];
+    }
     $lines=[];
     foreach($annotations as $ann){
         $code=(string)$ann['class_code'];

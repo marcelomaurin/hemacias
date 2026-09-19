@@ -150,14 +150,34 @@ document.getElementById('deleteSelected').onclick=()=>{
 };
 document.getElementById('importAuto').onclick=async()=>{
   if(READ_ONLY){statusBox.textContent='Perfil somente leitura.';return;}
-  if(annotations.length && !confirm('Substituir a revisão atual pelas detecções automáticas?'))return;
-  const body=new URLSearchParams({csrf:CSRF,action:'import_auto',image_id:String(IMAGE_ID)});
-  statusBox.textContent='Importando detecções automáticas...';
-  const response=await fetch('annotation_api.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
-  const data=await response.json();
-  if(!data.ok){statusBox.textContent='Erro: '+data.error;return;}
-  statusBox.textContent='Importadas '+data.imported+' detecção(ões). Revise antes de salvar.';
-  await loadAnnotations();
+
+  async function doImport(force=false){
+    const body=new URLSearchParams({
+      csrf:CSRF,action:'import_auto',image_id:String(IMAGE_ID),force:force?'1':'0'
+    });
+    statusBox.textContent='Importando detecções automáticas...';
+    const response=await fetch('annotation_api.php',{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body
+    });
+    const data=await response.json();
+
+    if(!data.ok && data.requires_force){
+      const confirmed=confirm(
+        'Esta imagem já possui revisão humana. Reiniciar pelas detecções automáticas substituirá a revisão atual. Continuar?'
+      );
+      if(confirmed) return doImport(true);
+      statusBox.textContent='Importação cancelada; a revisão humana foi preservada.';
+      return;
+    }
+    if(!data.ok){statusBox.textContent='Erro: '+data.error;return;}
+
+    statusBox.textContent='Importadas '+data.imported+' detecção(ões). Revise e salve antes de aprovar a imagem.';
+    await loadAnnotations();
+  }
+
+  await doImport(false);
 };
 
 document.getElementById('saveAnnotations').onclick=async()=>{

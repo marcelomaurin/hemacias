@@ -5,8 +5,8 @@ unit main;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
-  Grids, ComCtrls, fpjson, jsonparser, pythonconnector, yolodetect, chatgpt;
+  Classes, SysUtils, Math, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
+  Grids, ComCtrls, fpjson, pythonconnector, yolodetect, chatgpt;
 
 type
   TClassSummary = record
@@ -57,6 +57,7 @@ type
     FSummaries: TClassSummaryArray;
     FCurrentImage: string;
     FLastDeterministicReport: string;
+    FChatConfigured: Boolean;
 
     procedure BuildUI;
     procedure InitializeAI;
@@ -96,11 +97,6 @@ var
 implementation
 
 {$R *.lfm}
-
-function JsonFloat(AValue: Double): TJSONFloatNumber;
-begin
-  Result := TJSONFloatNumber.Create(AValue);
-end;
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
@@ -297,7 +293,11 @@ begin
   FYolo.PreferProcessMode := True;
 
   FChatGPT := TCHATGPT.Create(Self);
-  FChatGPT.LoadConfigFromAppData('ChatGPT');
+  FChatConfigured := FChatGPT.LoadConfigFromAppData('ChatGPT');
+  if FChatConfigured then
+    Log('Configuração do TCHATGPT carregada.')
+  else
+    Log('TCHATGPT sem configuração salva; o parecer textual ficará indisponível.');
 
   SetStatus('Inicializando Python...');
   Application.ProcessMessages;
@@ -500,7 +500,7 @@ begin
         FObjects[I].X2, FObjects[I].Y2
       );
       LabelText := DisplayClass(Code) + ' ' +
-        FormatFloat('0%', FObjects[I].Confidence);
+        FormatFloat('0.0', FObjects[I].Confidence * 100) + '%';
       Bmp.Canvas.TextOut(FObjects[I].X1 + 2, FObjects[I].Y1 + 2, LabelText);
     end;
 
@@ -593,7 +593,7 @@ begin
     BuildDeterministicReport;
 
     FBtnExport.Enabled := True;
-    FBtnAIReport.Enabled := True;
+    FBtnAIReport.Enabled := FChatConfigured;
     SetStatus(Format('Análise concluída: %d objeto(s).', [Length(FObjects)]));
   finally
     FBtnAnalyze.Enabled := True;
@@ -611,6 +611,7 @@ var
 begin
   Root := TJSONObject.Create;
   try
+    Root.Add('generated_at', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', Now));
     Root.Add('image', FCurrentImage);
     Root.Add('model', FYolo.ModelPath);
     Root.Add('confidence_threshold', FYolo.ConfidenceThreshold);

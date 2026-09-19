@@ -5,8 +5,11 @@ $user=require_login();
 
 $sampleId=(int)($_GET['sample_id']??0);
 $st=db()->prepare(
-    'SELECT s.*,p.name patient_name,p.id patient_id
-     FROM samples s JOIN patients p ON p.id=s.patient_id
+    'SELECT s.*,p.name patient_name,p.id patient_id,
+            cp.name protocol_name,cp.min_fields,cp.min_valid_fields,cp.require_quality
+     FROM samples s
+     JOIN patients p ON p.id=s.patient_id
+     LEFT JOIN count_protocols cp ON cp.id=s.protocol_id
      WHERE s.id=?'
 );
 $st->execute([$sampleId]);
@@ -51,10 +54,14 @@ $st=db()->prepare(
      FROM microscopic_fields mf
      JOIN counts c ON c.field_id=mf.id
      JOIN count_components cc ON cc.count_id=c.id
+     LEFT JOIN count_item_types cit ON cit.id=cc.item_type_id
+     LEFT JOIN count_protocol_items cpi ON cpi.item_type_id=cc.item_type_id
+       AND cpi.protocol_id=(SELECT protocol_id FROM samples WHERE id=?)
      WHERE mf.sample_id=? AND mf.status='ACEITA' AND mf.included_in_summary=1
+       AND COALESCE(cpi.summary_enabled,cit.summary_enabled,1)=1
      ORDER BY cc.component_code,mf.field_no"
 );
-$st->execute([$sampleId]);
+$st->execute([$sampleId,$sampleId]);
 $rows=$st->fetchAll();
 
 $grouped=[];
@@ -89,7 +96,17 @@ foreach($fields as $f){
 <a href="dataset.php">Dataset</a><a href="index.php?page=logout">Sair</a></nav></header>
 <main class="container">
 <h1>Amostra <?=h($sample['sample_code'])?></h1>
-<p>Paciente: <?=h($sample['patient_name'])?></p>
+<p>Paciente: <?=h($sample['patient_name'])?> · Protocolo: <?=h($sample['protocol_name']?:'não definido')?></p>
+<?php
+$minFields=(int)($sample['min_fields']??0);
+$minValid=(int)($sample['min_valid_fields']??0);
+$protocolReady=($minValid===0 || $accepted >= $minValid);
+?>
+<div class="<?=$protocolReady?'ok':'error'?>">
+Campos válidos: <?=$accepted?> / mínimo exigido: <?=$minValid?:'não definido'?>.
+Campos totais: <?=count($fields)?> / alvo do protocolo: <?=$minFields?:'não definido'?>.
+<?=$protocolReady?'Critério mínimo de campos válidos atendido.':'A análise ainda não atingiu o mínimo de campos válidos do protocolo.'?>
+</div>
 
 <div class="grid">
 <div class="card"><div class="metric"><?=count($fields)?></div>Campos totais</div>

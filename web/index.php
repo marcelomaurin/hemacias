@@ -195,7 +195,12 @@ if ($page === 'count') {
       foreach($components as $component){
           $meta=json_decode((string)($component['metadata_json']??''),true);
           if(is_array($meta) && is_array($meta['detections']??null)){
-              $detections=array_merge($detections,$meta['detections']);
+              foreach($meta['detections'] as $det){
+                  if(!is_array($det)) continue;
+                  $det['_component_code']=(string)$component['component_code'];
+                  $det['_component_name']=(string)$component['component_name'];
+                  $detections[]=$det;
+              }
           }
       }
       $w=max(1,(int)($img['width_px']??1));
@@ -209,6 +214,14 @@ if ($page === 'count') {
           <?php foreach($detections as $det):
             $x=(float)($det['x']??0); $y=(float)($det['y']??0); $r=max(2.0,(float)($det['radius_px']??4));
             $polygon=is_array($det['polygon']??null)?$det['polygon']:[];
+            $code=(string)($det['_component_code']??'hemacia');
+            $stroke=match($code){
+                'hemacia'=>'#00ff00',
+                'leucocito'=>'#00b7ff',
+                'plaqueta'=>'#ffd000',
+                'artefato'=>'#ff3b30',
+                default=>'#ffffff'
+            };
             $points=[];
             foreach($polygon as $point){
                 if(is_array($point) && count($point)>=2){
@@ -217,14 +230,20 @@ if ($page === 'count') {
             }
           ?>
             <?php if(count($points)>=3):?>
-              <polygon points="<?=h(implode(' ',$points))?>" fill="none" stroke="#00ff00" stroke-width="2"/>
+              <polygon points="<?=h(implode(' ',$points))?>" fill="none" stroke="<?=h($stroke)?>" stroke-width="2"/>
             <?php else:?>
-              <circle cx="<?=$x?>" cy="<?=$y?>" r="<?=$r?>" fill="none" stroke="#00ff00" stroke-width="2"/>
+              <circle cx="<?=$x?>" cy="<?=$y?>" r="<?=$r?>" fill="none" stroke="<?=h($stroke)?>" stroke-width="2"/>
             <?php endif;?>
           <?php endforeach;?>
         </svg>
       </div>
       <p><small class="muted"><?=h($img['original_name'])?> · <?=h($img['scale_label'])?> · <?=count($detections)?> identificação(ões)</small></p>
+      <p><small>
+        <span style="color:#00aa00">■ Hemácia</span> ·
+        <span style="color:#008fc7">■ Leucócito</span> ·
+        <span style="color:#b89b00">■ Plaqueta</span> ·
+        <span style="color:#d12b20">■ Artefato</span>
+      </small></p>
       <p><a class="button" href="annotation.php?image_id=<?=$img['id']?>">Revisar / Anotar imagem</a></p>
     </div>
     <?php endforeach; ?>

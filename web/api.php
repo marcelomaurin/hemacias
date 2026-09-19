@@ -344,7 +344,11 @@ try {
             $modelRow=$stModel->fetch();
             if(!$modelRow) throw new RuntimeException('Modelo informado não existe ou não está liberado para uso.');
             $modelVersion=(string)$modelRow['version'];
-            $modelSha=$modelRow['sha256'] ?: $modelSha;
+            $registeredSha=strtolower(trim((string)($modelRow['sha256']??'')));
+            if($registeredSha!=='' && $modelSha!==null && $modelSha!==$registeredSha){
+                throw new RuntimeException('SHA-256 informado não corresponde ao modelo cadastrado.');
+            }
+            $modelSha=$registeredSha!=='' ? $registeredSha : $modelSha;
         }
 
         $sourceClient=strtoupper(trim((string)($d['source_client']??'PYTHON')));

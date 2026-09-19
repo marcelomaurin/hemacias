@@ -57,6 +57,10 @@ type
     FBtnAIReport: TButton;
     FBtnModel: TButton;
     FBtnClear: TButton;
+    FBtnReviewDelete: TButton;
+    FBtnReviewClass: TButton;
+    FBtnReviewAdd: TButton;
+    FBtnReviewSave: TButton;
     FBtnConnect: TButton;
     FBtnBindSample: TButton;
 
@@ -71,6 +75,7 @@ type
     FEdPatientExternal: TEdit;
     FEdSampleCode: TEdit;
     FCbProtocol: TComboBox;
+    FCbReviewClass: TComboBox;
 
     FOpenImage: TOpenDialog;
     FOpenModel: TOpenDialog;
@@ -96,6 +101,9 @@ type
     FFocusScore: Double;
     FQualityReason: string;
     FShowingSampleSummary: Boolean;
+    FLastImageID: Int64;
+    FSelectedObject: Integer;
+    FAddReviewMode: Boolean;
 
     procedure BuildUI;
     procedure InitializeAI;
@@ -111,6 +119,11 @@ type
     procedure ExportClick(Sender: TObject);
     procedure AIReportClick(Sender: TObject);
     procedure ClearClick(Sender: TObject);
+    procedure ReviewDeleteClick(Sender: TObject);
+    procedure ReviewClassClick(Sender: TObject);
+    procedure ReviewAddClick(Sender: TObject);
+    procedure ReviewSaveClick(Sender: TObject);
+    procedure ImageMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ConnectClick(Sender: TObject);
     procedure BindSampleClick(Sender: TObject);
 
@@ -133,6 +146,12 @@ type
     procedure PopulateProtocols(AConfig: TJSONObject);
     procedure ApplySampleConfig(AConfig: TJSONObject);
     procedure LoadProtocolItems(AProtocol: TJSONObject);
+    procedure PopulateReviewClasses;
+    procedure RefreshAfterReview;
+    function ScreenToImage(const X, Y: Integer; out IX, IY: Integer): Boolean;
+    function FindObjectAt(const IX, IY: Integer): Integer;
+    procedure DeleteObject(AIndex: Integer);
+    procedure AddManualObject(const IX, IY: Integer);
 
     function FindSummary(const ACode: string): Integer;
     procedure AddSummary(const ACode: string; AConfidence: Double);
@@ -213,6 +232,9 @@ begin
   FFocusScore := 0;
   FQualityReason := '';
   FShowingSampleSummary := False;
+  FLastImageID := 0;
+  FSelectedObject := -1;
+  FAddReviewMode := False;
   BuildUI;
   InitializeAI;
 end;
@@ -397,10 +419,44 @@ begin
   FGrid.Options := FGrid.Options - [goEditing];
 
   L := TLabel.Create(Self); L.Parent := FRight;
-  L.SetBounds(10, 305, 300, 20); L.Caption := 'Relatório / observações';
+  L.SetBounds(10, 302, 170, 20); L.Caption := 'Revisão humana';
+  L.Font.Style := [fsBold];
+
+  FCbReviewClass := TComboBox.Create(Self);
+  FCbReviewClass.Parent := FRight;
+  FCbReviewClass.SetBounds(8, 324, 150, 27);
+  FCbReviewClass.Style := csDropDownList;
+
+  FBtnReviewClass := TButton.Create(Self);
+  FBtnReviewClass.Parent := FRight;
+  FBtnReviewClass.SetBounds(164, 323, 98, 29);
+  FBtnReviewClass.Caption := 'Trocar classe';
+  FBtnReviewClass.OnClick := @ReviewClassClick;
+
+  FBtnReviewDelete := TButton.Create(Self);
+  FBtnReviewDelete.Parent := FRight;
+  FBtnReviewDelete.SetBounds(268, 323, 106, 29);
+  FBtnReviewDelete.Caption := 'Excluir';
+  FBtnReviewDelete.OnClick := @ReviewDeleteClick;
+
+  FBtnReviewAdd := TButton.Create(Self);
+  FBtnReviewAdd.Parent := FRight;
+  FBtnReviewAdd.SetBounds(8, 357, 150, 29);
+  FBtnReviewAdd.Caption := 'Adicionar no clique';
+  FBtnReviewAdd.OnClick := @ReviewAddClick;
+
+  FBtnReviewSave := TButton.Create(Self);
+  FBtnReviewSave.Parent := FRight;
+  FBtnReviewSave.SetBounds(164, 357, 210, 29);
+  FBtnReviewSave.Caption := 'Salvar revisão no dataset';
+  FBtnReviewSave.OnClick := @ReviewSaveClick;
+  FBtnReviewSave.Enabled := False;
+
+  L := TLabel.Create(Self); L.Parent := FRight;
+  L.SetBounds(10, 397, 300, 20); L.Caption := 'Relatório / observações';
 
   FMemo := TMemo.Create(Self); FMemo.Parent := FRight;
-  FMemo.SetBounds(8, 330, 368, 300);
+  FMemo.SetBounds(8, 420, 368, 210);
   FMemo.ScrollBars := ssAutoVertical; FMemo.WordWrap := True;
 
   FBottom := TPanel.Create(Self); FBottom.Parent := Self;
@@ -411,6 +467,7 @@ begin
   FImage := TImage.Create(Self); FImage.Parent := Self;
   FImage.Align := alClient; FImage.Center := True;
   FImage.Proportional := True; FImage.Stretch := True;
+  FImage.OnMouseDown := @ImageMouseDown;
 
   FOpenImage := TOpenDialog.Create(Self);
   FOpenImage.Title := 'Selecionar imagem de lâmina';
@@ -655,6 +712,7 @@ begin
     Log('Modelo do protocolo não existe localmente. Selecione o arquivo correspondente: ' +
       FEdModel.Text);
 
+  PopulateReviewClasses;
   Log('Configuração aplicada: protocolo=' + FProtocolCode +
     ', modelo=' + FModelVersion + ', itens=' + IntToStr(Length(FProtocolItems)));
 end;
@@ -695,6 +753,10 @@ begin
   FQualityScore := 0;
   FFocusScore := 0;
   FQualityReason := '';
+  FSelectedObject := -1;
+  FAddReviewMode := False;
+  FLastImageID := 0;
+  FBtnReviewSave.Enabled := False;
   UpdateGrid;
   FBtnExport.Enabled := False;
   FBtnAIReport.Enabled := False;
@@ -966,7 +1028,16 @@ begin
       if not IsClassEnabled(Code) then Continue;
       if FObjects[I].Confidence < ThresholdForClass(Code) then Continue;
 
-      Bmp.Canvas.Pen.Color := ColorForClass(Code);
+      if I = FSelectedObject then
+      begin
+        Bmp.Canvas.Pen.Color := clYellow;
+        Bmp.Canvas.Pen.Width := 4;
+      end
+      else
+      begin
+        Bmp.Canvas.Pen.Color := ColorForClass(Code);
+        Bmp.Canvas.Pen.Width := 2;
+      end;
       Bmp.Canvas.Font.Color := ColorForClass(Code);
 
       Tokens.Clear;
@@ -1102,7 +1173,9 @@ begin
     FBtnExport.Enabled := True;
     FBtnAIReport.Enabled := FChatConfigured;
     FBtnSend.Enabled := (FSampleID > 0) and (FApi <> nil);
-    SetStatus(Format('Análise concluída: %d detecção(ões) brutas.', [Length(FObjects)]));
+    FSelectedObject := -1;
+    FAddReviewMode := False;
+    SetStatus(Format('Análise concluída: %d detecção(ões) brutas. Clique em uma célula para revisar.', [Length(FObjects)]));
   finally
     FBtnAnalyze.Enabled := True;
     Screen.Cursor := crDefault;
@@ -1206,6 +1279,8 @@ begin
       Exit;
     end;
 
+    FLastImageID := ImageID;
+    FBtnReviewSave.Enabled := FLastImageID > 0;
     Log(Format('Campo #%d enviado. count_id=%d, field_id=%d, image_id=%d.',
       [FieldNo, CountID, FieldID, ImageID]));
     SetStatus(Format('Campo #%d registrado no servidor.', [FieldNo]));
@@ -1231,6 +1306,10 @@ begin
   FQualityScore := 0;
   FFocusScore := 0;
   FQualityReason := '';
+  FLastImageID := 0;
+  FSelectedObject := -1;
+  FAddReviewMode := False;
+  FBtnReviewSave.Enabled := False;
   UpdateGrid;
   FBtnSend.Enabled := False;
   FBtnExport.Enabled := False;
@@ -1336,6 +1415,310 @@ begin
   finally
     S.Free;
     Obj.Free;
+  end;
+end;
+
+
+procedure TfrmMain.PopulateReviewClasses;
+var
+  I: Integer;
+begin
+  if FCbReviewClass = nil then Exit;
+  FCbReviewClass.Items.Clear;
+  for I := 0 to High(FProtocolItems) do
+    if FProtocolItems[I].AIEnabled then
+      FCbReviewClass.Items.AddObject(FProtocolItems[I].Name, TObject(PtrInt(I)));
+  if FCbReviewClass.Items.Count = 0 then
+  begin
+    FCbReviewClass.Items.Add('Hemácia');
+    FCbReviewClass.Items.Add('Leucócito');
+    FCbReviewClass.Items.Add('Plaqueta');
+    FCbReviewClass.Items.Add('Artefato');
+  end;
+  if FCbReviewClass.Items.Count > 0 then FCbReviewClass.ItemIndex := 0;
+end;
+
+function TfrmMain.ScreenToImage(const X, Y: Integer; out IX, IY: Integer): Boolean;
+var
+  IW, IH, DW, DH, OX, OY: Integer;
+  Scale: Double;
+begin
+  Result := False;
+  IX := 0; IY := 0;
+  if (FImage.Picture.Graphic = nil) then Exit;
+  IW := FImage.Picture.Graphic.Width;
+  IH := FImage.Picture.Graphic.Height;
+  if (IW <= 0) or (IH <= 0) or (FImage.ClientWidth <= 0) or (FImage.ClientHeight <= 0) then Exit;
+
+  Scale := Min(FImage.ClientWidth / IW, FImage.ClientHeight / IH);
+  DW := Round(IW * Scale);
+  DH := Round(IH * Scale);
+  OX := (FImage.ClientWidth - DW) div 2;
+  OY := (FImage.ClientHeight - DH) div 2;
+  if (X < OX) or (Y < OY) or (X >= OX + DW) or (Y >= OY + DH) then Exit;
+
+  IX := EnsureRange(Round((X - OX) / Scale), 0, IW - 1);
+  IY := EnsureRange(Round((Y - OY) / Scale), 0, IH - 1);
+  Result := True;
+end;
+
+function TfrmMain.FindObjectAt(const IX, IY: Integer): Integer;
+var
+  I, BestArea, Area: Integer;
+begin
+  Result := -1;
+  BestArea := MaxInt;
+  for I := 0 to High(FObjects) do
+    if (IX >= FObjects[I].X1) and (IX <= FObjects[I].X2) and
+       (IY >= FObjects[I].Y1) and (IY <= FObjects[I].Y2) then
+    begin
+      Area := Max(1, FObjects[I].X2 - FObjects[I].X1) *
+              Max(1, FObjects[I].Y2 - FObjects[I].Y1);
+      if Area < BestArea then
+      begin
+        BestArea := Area;
+        Result := I;
+      end;
+    end;
+end;
+
+procedure TfrmMain.DeleteObject(AIndex: Integer);
+var
+  I: Integer;
+begin
+  if (AIndex < 0) or (AIndex > High(FObjects)) then Exit;
+  for I := AIndex to High(FObjects)-1 do
+    FObjects[I] := FObjects[I+1];
+  SetLength(FObjects, Length(FObjects)-1);
+  FSelectedObject := -1;
+  RefreshAfterReview;
+end;
+
+procedure TfrmMain.AddManualObject(const IX, IY: Integer);
+var
+  O: TYoloObject;
+  R, Idx: Integer;
+  Code: string;
+begin
+  if FCbReviewClass.ItemIndex < 0 then Exit;
+  if Length(FProtocolItems) > 0 then
+  begin
+    Idx := PtrInt(FCbReviewClass.Items.Objects[FCbReviewClass.ItemIndex]);
+    if (Idx >= 0) and (Idx <= High(FProtocolItems)) then
+      Code := FProtocolItems[Idx].Code
+    else
+      Code := LowerCase(FCbReviewClass.Text);
+  end
+  else
+  begin
+    case FCbReviewClass.ItemIndex of
+      0: Code := 'hemacia';
+      1: Code := 'leucocito';
+      2: Code := 'plaqueta';
+      3: Code := 'artefato';
+    else
+      Code := LowerCase(FCbReviewClass.Text);
+    end;
+  end;
+
+  R := 10;
+  O.ClassName := Code;
+  O.Confidence := 1.0;
+  O.X1 := Max(0, IX-R);
+  O.Y1 := Max(0, IY-R);
+  O.X2 := IX+R;
+  O.Y2 := IY+R;
+  O.Polygon := Format('%d:%d|%d:%d|%d:%d|%d:%d',
+    [O.X1,O.Y1,O.X2,O.Y1,O.X2,O.Y2,O.X1,O.Y2]);
+
+  SetLength(FObjects, Length(FObjects)+1);
+  FObjects[High(FObjects)] := O;
+  FSelectedObject := High(FObjects);
+  FAddReviewMode := False;
+  FBtnReviewAdd.Caption := 'Adicionar no clique';
+  RefreshAfterReview;
+  SetStatus('Objeto manual adicionado. Revise e salve no dataset.');
+end;
+
+procedure TfrmMain.RefreshAfterReview;
+begin
+  BuildSummaries;
+  UpdateGrid;
+  DrawDetections;
+  BuildDeterministicReport;
+end;
+
+procedure TfrmMain.ImageMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+var
+  IX, IY: Integer;
+begin
+  if Button <> mbLeft then Exit;
+  if Length(FObjects) = 0 then Exit;
+  if not ScreenToImage(X, Y, IX, IY) then Exit;
+
+  if FAddReviewMode then
+  begin
+    AddManualObject(IX, IY);
+    Exit;
+  end;
+
+  FSelectedObject := FindObjectAt(IX, IY);
+  if FSelectedObject >= 0 then
+  begin
+    SetStatus(Format('Selecionado #%d: %s (%.1f%%).',
+      [FSelectedObject+1, DisplayClass(NormalizeClass(FObjects[FSelectedObject].ClassName)),
+       FObjects[FSelectedObject].Confidence*100]));
+    DrawDetections;
+  end
+  else
+    SetStatus('Nenhum objeto selecionado nesse ponto.');
+end;
+
+procedure TfrmMain.ReviewDeleteClick(Sender: TObject);
+begin
+  if FSelectedObject < 0 then
+  begin
+    ShowMessage('Clique primeiro sobre uma detecção para selecioná-la.');
+    Exit;
+  end;
+  DeleteObject(FSelectedObject);
+  SetStatus('Detecção removida da revisão.');
+end;
+
+procedure TfrmMain.ReviewClassClick(Sender: TObject);
+var
+  Idx: Integer;
+  Code: string;
+begin
+  if FSelectedObject < 0 then
+  begin
+    ShowMessage('Clique primeiro sobre uma detecção para selecioná-la.');
+    Exit;
+  end;
+  if FCbReviewClass.ItemIndex < 0 then Exit;
+
+  if Length(FProtocolItems) > 0 then
+  begin
+    Idx := PtrInt(FCbReviewClass.Items.Objects[FCbReviewClass.ItemIndex]);
+    if (Idx >= 0) and (Idx <= High(FProtocolItems)) then
+      Code := FProtocolItems[Idx].Code
+    else Exit;
+  end
+  else
+  begin
+    case FCbReviewClass.ItemIndex of
+      0: Code := 'hemacia';
+      1: Code := 'leucocito';
+      2: Code := 'plaqueta';
+      3: Code := 'artefato';
+    else Exit;
+    end;
+  end;
+
+  FObjects[FSelectedObject].ClassName := Code;
+  FObjects[FSelectedObject].Confidence := 1.0;
+  RefreshAfterReview;
+  SetStatus('Classe corrigida manualmente para ' + DisplayClass(Code) + '.');
+end;
+
+procedure TfrmMain.ReviewAddClick(Sender: TObject);
+begin
+  if FCurrentImage = '' then
+  begin
+    ShowMessage('Carregue e analise uma imagem antes de adicionar objetos.');
+    Exit;
+  end;
+  FAddReviewMode := not FAddReviewMode;
+  if FAddReviewMode then
+  begin
+    FBtnReviewAdd.Caption := 'Cancelar adição';
+    SetStatus('Modo adicionar ativo: clique no centro da célula ausente.');
+  end
+  else
+  begin
+    FBtnReviewAdd.Caption := 'Adicionar no clique';
+    SetStatus('Modo adicionar cancelado.');
+  end;
+end;
+
+procedure TfrmMain.ReviewSaveClick(Sender: TObject);
+var
+  Arr: TJSONArray;
+  Ann: TJSONObject;
+  Poly: TJSONArray;
+  P: TJSONArray;
+  Tokens, XY: TStringList;
+  I, J: Integer;
+  Code: string;
+begin
+  if (FApi = nil) or (FLastImageID < 1) then
+  begin
+    ShowMessage('Envie o campo ao servidor antes de salvar a revisão.');
+    Exit;
+  end;
+
+  Arr := TJSONArray.Create;
+  Tokens := TStringList.Create;
+  XY := TStringList.Create;
+  try
+    for I := 0 to High(FObjects) do
+    begin
+      Code := NormalizeClass(FObjects[I].ClassName);
+      if not IsClassEnabled(Code) then Continue;
+
+      Ann := TJSONObject.Create;
+      Ann.Add('class_code', Code);
+      Ann.Add('notes', 'Revisão humana realizada no Hemácias Analyzer Lazarus');
+      Poly := TJSONArray.Create;
+      Ann.Add('polygon', Poly);
+
+      Tokens.Clear;
+      ExtractStrings(['|'], [], PChar(FObjects[I].Polygon), Tokens);
+      if Tokens.Count >= 3 then
+      begin
+        for J := 0 to Tokens.Count-1 do
+        begin
+          XY.Clear;
+          ExtractStrings([':'], [], PChar(Tokens[J]), XY);
+          if XY.Count >= 2 then
+          begin
+            P := TJSONArray.Create;
+            P.Add(StrToIntDef(XY[0], FObjects[I].X1));
+            P.Add(StrToIntDef(XY[1], FObjects[I].Y1));
+            Poly.Add(P);
+          end;
+        end;
+      end;
+
+      if Poly.Count < 3 then
+      begin
+        Poly.Clear;
+        P := TJSONArray.Create; P.Add(FObjects[I].X1); P.Add(FObjects[I].Y1); Poly.Add(P);
+        P := TJSONArray.Create; P.Add(FObjects[I].X2); P.Add(FObjects[I].Y1); Poly.Add(P);
+        P := TJSONArray.Create; P.Add(FObjects[I].X2); P.Add(FObjects[I].Y2); Poly.Add(P);
+        P := TJSONArray.Create; P.Add(FObjects[I].X1); P.Add(FObjects[I].Y2); Poly.Add(P);
+      end;
+      Arr.Add(Ann);
+    end;
+
+    SetStatus('Salvando revisão humana no dataset...');
+    Application.ProcessMessages;
+    if not FApi.SaveAnnotations(FLastImageID, Arr) then
+    begin
+      ShowMessage('Falha ao salvar revisão: ' + FApi.LastError);
+      SetStatus('Falha ao salvar revisão.');
+      Exit;
+    end;
+
+    SetStatus(Format('Revisão salva: %d anotação(ões). Imagem marcada como REVISADA.',
+      [Arr.Count]));
+    Log(Format('Ground truth salvo no dataset para image_id=%d: %d objetos.',
+      [FLastImageID, Arr.Count]));
+  finally
+    XY.Free;
+    Tokens.Free;
+    Arr.Free;
   end;
 end;
 
@@ -1490,6 +1873,10 @@ begin
   FMemo.Clear;
   FLastDeterministicReport := '';
   FShowingSampleSummary := False;
+  FLastImageID := 0;
+  FSelectedObject := -1;
+  FAddReviewMode := False;
+  FBtnReviewSave.Enabled := False;
   UpdateGrid;
   FBtnExport.Enabled := False;
   FBtnAIReport.Enabled := False;

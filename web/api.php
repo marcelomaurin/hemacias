@@ -25,8 +25,8 @@ try {
                     m.dataset_ref model_dataset,m.imgsz model_imgsz,m.epochs model_epochs
              FROM count_protocols cp
              LEFT JOIN ai_models m ON m.id=cp.default_model_id
-             WHERE active=1
-             ORDER BY name"
+             WHERE cp.active=1
+             ORDER BY cp.name"
         )->fetchAll();
 
         $pitems=db()->query(

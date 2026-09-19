@@ -153,6 +153,7 @@ def main() -> int:
             map50=map50,
             map5095=map5095,
             notes="Métricas globais retornadas pelo treinamento Ultralytics (máscara quando disponível).",
+            metric_origin="TRAINING",
         )
         print(f"Modelo registrado para validação: #{model_id} · {args.registry_code} {args.registry_version}")
 

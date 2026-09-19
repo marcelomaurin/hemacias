@@ -159,10 +159,12 @@ if ($page === 'patient') {
 if ($page === 'count') {
     $id=(int)($_GET['id']??0);
     $st=db()->prepare(
-        'SELECT c.*,s.sample_code,s.id sample_id,p.name patient_name,p.id patient_id
+        'SELECT c.*,s.sample_code,s.id sample_id,p.name patient_name,p.id patient_id,
+                m.name model_name,m.version model_version
          FROM counts c
          JOIN samples s ON s.id=c.sample_id
          JOIN patients p ON p.id=s.patient_id
+         LEFT JOIN ai_models m ON m.id=c.model_id
          WHERE c.id=?'
     );
     $st->execute([$id]);
@@ -183,7 +185,9 @@ if ($page === 'count') {
       <b>Paciente:</b> <a href="index.php?page=patient&id=<?=$count['patient_id']?>"><?=h($count['patient_name'])?></a>
       &nbsp; <b>Amostra:</b> <a href="index.php?page=sample&id=<?=$count['sample_id']?>"><?=h($count['sample_code'])?></a><br>
       <b>Método:</b> <?=h($count['method'])?> &nbsp;
-      <b>Versão:</b> <?=h($count['algorithm_version'])?> &nbsp;
+      <b>Versão algoritmo:</b> <?=h($count['algorithm_version'])?> &nbsp;
+      <b>Modelo:</b> <?=h($count['model_name']?:'—')?> <?=h($count['model_version']?:'')?> &nbsp;
+      <b>SHA:</b> <?=h($count['model_sha256_snapshot']?substr((string)$count['model_sha256_snapshot'],0,12).'…':'—')?> &nbsp;
       <b>Escala:</b> <?=h($count['scale_label'])?> &nbsp;
       <b>Magnificação:</b> <?=h((string)$count['magnification'])?> &nbsp;
       <b>Pixel:</b> <?=h((string)$count['pixel_size_um'])?> µm<br>

@@ -259,6 +259,7 @@ if ($page === 'sample') {
     $st=db()->prepare('SELECT * FROM sample_images WHERE sample_id=? ORDER BY created_at DESC');$st->execute([$id]);$images=$st->fetchAll();
     layout_start($user,'Amostra'); ?>
     <h1>Amostra <?=h($sample['sample_code'])?></h1><p>Paciente: <a href="index.php?page=patient&id=<?=$sample['patient_id']?>"><?=h($sample['patient_name'])?></a></p>
+    <p><a class="button" href="sample_analysis.php?sample_id=<?=$id?>">Análise consolidada dos campos</a></p>
     <div class="grid"><section class="card"><h2>Contagem manual</h2><form method="post">
     <input type="hidden" name="csrf" value="<?=h(csrf_token())?>"><input type="hidden" name="action" value="manual_count"><input type="hidden" name="sample_id" value="<?=$id?>">
     <label>Componente<select name="component_code"><option value="hemacia">Hemácia</option><option value="leucocito">Leucócito</option><option value="plaqueta">Plaqueta</option><option value="outro">Outro</option></select></label>

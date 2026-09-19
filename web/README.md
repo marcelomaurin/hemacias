@@ -50,6 +50,7 @@ Ações implementadas:
 - `model_register`
 - `model_metric_upsert`
 - `models_list`
+- `sample_summary`
 
 A aplicação `teste04.py` usa essas ações automaticamente.
 
@@ -420,3 +421,8 @@ web/migrations/008_lazarus_source.sql
 ```
 
 Se a análise informar `model_id` e o modelo cadastrado possuir SHA-256, a API rejeita um SHA diferente do registro.
+
+
+### sample_summary
+
+Retorna a visão consolidada de uma amostra para clientes desktop e integrações: campos microscópicos, situação de qualidade, contagens consolidadas e estatísticas por componente. Uma amostra é marcada como pronta somente quando atende simultaneamente o número total de campos e o número mínimo de campos válidos definidos pelo protocolo.

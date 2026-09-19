@@ -6,6 +6,61 @@ api_authorize();
 $action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
 
 try {
+    if ($action === 'config') {
+        $sampleId=(int)($_GET['sample_id'] ?? 0);
+        $items=db()->query(
+            "SELECT id,code,name,category,color_hex,default_unit,ai_enabled,annotation_enabled,
+                    summary_enabled,confidence_threshold,yolo_class_id,sort_order
+             FROM count_item_types
+             WHERE active=1
+             ORDER BY sort_order,name"
+        )->fetchAll();
+
+        $protocols=db()->query(
+            "SELECT id,code,name,min_fields,min_valid_fields,default_scale_label,
+                    default_magnification,require_quality
+             FROM count_protocols
+             WHERE active=1
+             ORDER BY name"
+        )->fetchAll();
+
+        $pitems=db()->query(
+            "SELECT cpi.protocol_id,cit.id item_type_id,cit.code,cit.name,cit.color_hex,cit.default_unit,
+                    cit.ai_enabled,cit.annotation_enabled,
+                    COALESCE(cpi.confidence_threshold,cit.confidence_threshold) confidence_threshold,
+                    COALESCE(cpi.summary_enabled,cit.summary_enabled) summary_enabled,
+                    cpi.required_item,cpi.sort_order
+             FROM count_protocol_items cpi
+             JOIN count_item_types cit ON cit.id=cpi.item_type_id
+             JOIN count_protocols cp ON cp.id=cpi.protocol_id
+             WHERE cp.active=1 AND cit.active=1
+             ORDER BY cpi.protocol_id,cpi.sort_order,cit.name"
+        )->fetchAll();
+
+        $byProtocol=[];
+        foreach($pitems as $row){
+            $byProtocol[(int)$row['protocol_id']][]=$row;
+        }
+        foreach($protocols as &$protocol){
+            $protocol['items']=$byProtocol[(int)$protocol['id']]??[];
+        }
+        unset($protocol);
+
+        $sample=null;
+        if($sampleId>0){
+            $st=db()->prepare(
+                "SELECT s.id,s.sample_code,s.protocol_id,cp.code protocol_code,cp.name protocol_name
+                 FROM samples s
+                 LEFT JOIN count_protocols cp ON cp.id=s.protocol_id
+                 WHERE s.id=?"
+            );
+            $st->execute([$sampleId]);
+            $sample=$st->fetch()?:null;
+        }
+
+        json_response(['ok'=>true,'items'=>$items,'protocols'=>$protocols,'sample'=>$sample]);
+    }
+
     if ($action === 'patient_upsert') {
         $d = json_input();
         $name = trim((string)($d['name'] ?? ''));
@@ -46,17 +101,28 @@ try {
         }
 
         $pdo = db();
+        $protocolId=(int)($d['protocol_id']??0);
+        $protocolCode=trim((string)($d['protocol_code']??''));
+        if($protocolId<1 && $protocolCode!==''){
+            $st=$pdo->prepare('SELECT id FROM count_protocols WHERE code=? AND active=1');
+            $st->execute([$protocolCode]);
+            $protocolId=(int)($st->fetchColumn()?:0);
+        }
+        if($protocolId<1){
+            $protocolId=(int)($pdo->query("SELECT id FROM count_protocols WHERE active=1 ORDER BY id LIMIT 1")->fetchColumn()?:0);
+        }
+
         $st = $pdo->prepare('SELECT id FROM samples WHERE patient_id=? AND sample_code=?');
         $st->execute([$patientId, $code]);
         $id = $st->fetchColumn();
         if ($id) json_response(['ok'=>true,'sample_id'=>(int)$id,'existing'=>true]);
 
         $st = $pdo->prepare(
-            'INSERT INTO samples(patient_id,sample_code,collected_at,sample_type,notes)
-             VALUES(?,?,?,?,?)'
+            'INSERT INTO samples(patient_id,protocol_id,sample_code,collected_at,sample_type,notes)
+             VALUES(?,?,?,?,?,?)'
         );
         $st->execute([
-            $patientId, $code, $d['collected_at'] ?? null,
+            $patientId, $protocolId ?: null, $code, $d['collected_at'] ?? null,
             $d['sample_type'] ?? 'sangue', $d['notes'] ?? null
         ]);
         json_response(['ok'=>true,'sample_id'=>(int)$pdo->lastInsertId(),'existing'=>false]);
@@ -126,18 +192,26 @@ try {
         $countId = (int)$pdo->lastInsertId();
 
         $components = is_array($d['components'] ?? null) ? $d['components'] : [];
+        $stType=$pdo->prepare(
+            'SELECT id,name,default_unit,confidence_threshold
+             FROM count_item_types WHERE code=? AND active=1'
+        );
         $stComp = $pdo->prepare(
             'INSERT INTO count_components(
-                count_id,component_code,component_name,quantity,unit,confidence,metadata_json
-             ) VALUES(?,?,?,?,?,?,?)'
+                count_id,item_type_id,component_code,component_name,quantity,unit,confidence,metadata_json
+             ) VALUES(?,?,?,?,?,?,?,?)'
         );
         foreach ($components as $component) {
+            $componentCode=strtolower(trim((string)($component['code'] ?? 'outro')));
+            $stType->execute([$componentCode]);
+            $type=$stType->fetch();
             $stComp->execute([
                 $countId,
-                (string)($component['code'] ?? 'outro'),
-                (string)($component['name'] ?? 'Outro'),
+                $type ? (int)$type['id'] : null,
+                $componentCode,
+                $type ? (string)$type['name'] : (string)($component['name'] ?? 'Outro'),
                 max(0, (int)($component['quantity'] ?? 0)),
-                (string)($component['unit'] ?? 'células/campo'),
+                $type ? (string)$type['default_unit'] : (string)($component['unit'] ?? 'objetos/campo'),
                 isset($component['confidence']) ? (float)$component['confidence'] : null,
                 isset($component['metadata'])
                     ? json_encode($component['metadata'], JSON_UNESCAPED_UNICODE)

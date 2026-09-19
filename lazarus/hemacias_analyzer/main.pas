@@ -1281,6 +1281,8 @@ begin
 
     FLastImageID := ImageID;
     FBtnReviewSave.Enabled := FLastImageID > 0;
+    if FLastImageID > 0 then
+      Log('A revisão humana desta imagem já pode ser salva no dataset.');
     Log(Format('Campo #%d enviado. count_id=%d, field_id=%d, image_id=%d.',
       [FieldNo, CountID, FieldID, ImageID]));
     SetStatus(Format('Campo #%d registrado no servidor.', [FieldNo]));
@@ -1526,8 +1528,8 @@ begin
   O.Confidence := 1.0;
   O.X1 := Max(0, IX-R);
   O.Y1 := Max(0, IY-R);
-  O.X2 := IX+R;
-  O.Y2 := IY+R;
+  O.X2 := Min(FImage.Picture.Graphic.Width-1, IX+R);
+  O.Y2 := Min(FImage.Picture.Graphic.Height-1, IY+R);
   O.Polygon := Format('%d:%d|%d:%d|%d:%d|%d:%d',
     [O.X1,O.Y1,O.X2,O.Y1,O.X2,O.Y2,O.X1,O.Y2]);
 
@@ -1554,7 +1556,6 @@ var
   IX, IY: Integer;
 begin
   if Button <> mbLeft then Exit;
-  if Length(FObjects) = 0 then Exit;
   if not ScreenToImage(X, Y, IX, IY) then Exit;
 
   if FAddReviewMode then
@@ -1626,7 +1627,7 @@ procedure TfrmMain.ReviewAddClick(Sender: TObject);
 begin
   if FCurrentImage = '' then
   begin
-    ShowMessage('Carregue e analise uma imagem antes de adicionar objetos.');
+    ShowMessage('Carregue uma imagem antes de adicionar objetos.');
     Exit;
   end;
   FAddReviewMode := not FAddReviewMode;
@@ -1808,7 +1809,7 @@ end;
 procedure TfrmMain.ExportClick(Sender: TObject);
 var Ext: string;
 begin
-  if Length(FSummaries) = 0 then
+  if (not FShowingSampleSummary) and (Length(FSummaries) = 0) then
   begin
     ShowMessage('Execute uma análise antes de emitir o resultado.'); Exit;
   end;

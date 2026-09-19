@@ -168,3 +168,32 @@ O botão **Relatório amostra** consulta o endpoint `sample_summary` e apresenta
 - desvio padrão amostral por componente.
 
 Quando o relatório da amostra está sendo exibido, **Emitir resultado** gera um arquivo TXT consolidado. Para um campo individual, continua sendo possível emitir JSON, CSV ou TXT.
+
+
+## Revisão humana no Lazarus
+
+Depois da análise do campo, o operador pode revisar visualmente as detecções antes de transformar a imagem em ground truth.
+
+Fluxo:
+
+```text
+Analisar
+  -> clicar sobre uma célula
+  -> Trocar classe ou Excluir
+  -> opcionalmente Adicionar no clique
+  -> Enviar campo
+  -> Salvar revisão no dataset
+```
+
+A célula selecionada é destacada. Em **Adicionar no clique**, o próximo clique cria uma anotação manual com confiança 1,0, que pode ser posteriormente ajustada ou excluída.
+
+O botão **Salvar revisão no dataset** envia o conjunto revisado ao endpoint `annotations_save`. O servidor:
+
+- valida as classes contra `count_item_types`;
+- valida os polígonos e os limites da imagem;
+- substitui as anotações anteriores da imagem;
+- grava as novas anotações como `MANUAL / APROVADA`;
+- registra uma revisão `SAVE_LAZARUS`;
+- marca o item do dataset como `REVISADA`.
+
+A revisão altera o ground truth/dataset; ela não reescreve retroativamente a contagem automática original, preservando a rastreabilidade entre predição e correção humana.

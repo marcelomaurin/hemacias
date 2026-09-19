@@ -397,6 +397,7 @@ CREATE TABLE IF NOT EXISTS ai_model_metrics (
     model_id BIGINT UNSIGNED NOT NULL,
     item_type_id BIGINT UNSIGNED NULL,
     metric_scope ENUM('GERAL','CLASSE') NOT NULL DEFAULT 'CLASSE',
+    metric_origin ENUM('TRAINING','COUNT_REFERENCE','GROUND_TRUTH','MANUAL') NOT NULL DEFAULT 'MANUAL',
     precision_value DECIMAL(10,6) NULL,
     recall_value DECIMAL(10,6) NULL,
     f1_value DECIMAL(10,6) NULL,
@@ -411,7 +412,7 @@ CREATE TABLE IF NOT EXISTS ai_model_metrics (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_ai_metrics_model FOREIGN KEY(model_id) REFERENCES ai_models(id) ON DELETE CASCADE,
     CONSTRAINT fk_ai_metrics_item FOREIGN KEY(item_type_id) REFERENCES count_item_types(id) ON DELETE SET NULL,
-    UNIQUE KEY uq_ai_metric_scope(model_id,item_type_id,metric_scope)
+    UNIQUE KEY uq_ai_metric_scope_origin(model_id,item_type_id,metric_scope,metric_origin)
 ) ENGINE=InnoDB;
 
 ALTER TABLE count_protocols ADD COLUMN default_model_id BIGINT UNSIGNED NULL AFTER require_quality;

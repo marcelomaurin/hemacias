@@ -9,6 +9,7 @@ import cv2
 from hemacias.camera import list_video_devices, open_camera
 from hemacias.counter import CellCounter, CounterConfig
 from hemacias.watershed import WatershedCounter, WatershedConfig
+from hemacias.yolo_counter import YoloSegCounter
 from hemacias.api_client import HemaciasApiClient
 
 
@@ -32,8 +33,11 @@ def parse_args():
                         help="Limiar do acumulador do Hough.")
     parser.add_argument("--focus", type=float, default=35.0,
                         help="Foco mínimo aceito antes de contar.")
-    parser.add_argument("--method", choices=("hough", "watershed"), default="watershed",
-                        help="Método de detecção (padrão: watershed).")
+    parser.add_argument("--method", choices=("hough", "watershed", "yolo"), default="watershed",
+                        help="Método de detecção (hough, watershed ou yolo).")
+    parser.add_argument("--model", help="Arquivo .pt treinado, obrigatório para --method yolo.")
+    parser.add_argument("--confidence", type=float, default=0.25, help="Confiança mínima do YOLO.")
+    parser.add_argument("--iou", type=float, default=0.70, help="IoU usado pelo YOLO.")
     parser.add_argument("--min-circularity", type=float, default=0.30,
                         help="Circularidade mínima usada pelo watershed.")
     parser.add_argument("--distance-ratio", type=float, default=0.38,
@@ -84,7 +88,7 @@ def main() -> int:
                 history_size=args.history,
             )
         )
-    else:
+    elif args.method == "watershed":
         counter = WatershedCounter(
             WatershedConfig(
                 min_radius=args.min_radius,
@@ -95,6 +99,21 @@ def main() -> int:
                 history_size=args.history,
             )
         )
+    else:
+        if not args.model:
+            print("Erro: --model é obrigatório quando --method yolo.")
+            return 5
+        try:
+            counter = YoloSegCounter(
+                args.model,
+                confidence=args.confidence,
+                iou=args.iou,
+                min_focus_score=args.focus,
+                history_size=args.history,
+            )
+        except RuntimeError as exc:
+            print(f"Erro ao carregar modelo: {exc}")
+            return 5
 
     api = None
     sample_id = None
@@ -192,12 +211,17 @@ def main() -> int:
                                     ),
                                     "stable_count_displayed": result.stable_count,
                                     "method": args.method,
+                                    "model": args.model if args.method == "yolo" else None,
                                 },
                             }
                         ],
                         image_path=temp_path,
-                        method=("opencv-hough" if args.method == "hough" else "opencv-watershed"),
-                        algorithm_version="1.2",
+                        method=(
+                            "opencv-hough"
+                            if args.method == "hough"
+                            else ("opencv-watershed" if args.method == "watershed" else "yolo-seg")
+                        ),
+                        algorithm_version="1.3",
                         scale_label=args.scale_label,
                         magnification=args.magnification,
                         pixel_size_um=args.pixel_size_um,

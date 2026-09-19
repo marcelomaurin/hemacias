@@ -42,6 +42,21 @@ def find_image(json_path: Path, data: dict) -> Path | None:
     return None
 
 
+def normalize_label(label: str) -> str:
+    value = label.strip().casefold()
+    aliases = {
+        "hemácia": "hemacia",
+        "rbc": "hemacia",
+        "red blood cell": "hemacia",
+        "leucócito": "leucocito",
+        "wbc": "leucocito",
+        "white blood cell": "leucocito",
+        "platelet": "plaqueta",
+        "artifact": "artefato",
+    }
+    return aliases.get(value, value)
+
+
 def normalize_polygon(points: list, width: int, height: int) -> list[float]:
     values: list[float] = []
     for point in points:
@@ -63,7 +78,7 @@ def convert_directory(
     allow_imagepath_mismatch: bool = False,
 ) -> ConversionStats:
     stats = ConversionStats()
-    class_map = {name.casefold(): idx for idx, name in enumerate(class_names)}
+    class_map = {normalize_label(name): idx for idx, name in enumerate(class_names)}
 
     for json_path in sorted(source.rglob("*.json")):
         data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -95,7 +110,7 @@ def convert_directory(
 
         labels: list[str] = []
         for shape in data.get("shapes", []):
-            label = str(shape.get("label", "")).strip().casefold()
+            label = normalize_label(str(shape.get("label", "")))
             class_id = class_map.get(label)
             points = shape.get("points")
             if class_id is None or not isinstance(points, list) or len(points) < 3:
@@ -172,6 +187,11 @@ def main() -> int:
         help="Classes LabelMe aceitas, na ordem dos IDs YOLO.",
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Remove o diretório de saída antes de converter, evitando arquivos obsoletos.",
+    )
+    parser.add_argument(
         "--allow-imagepath-mismatch",
         action="store_true",
         help="Permite converter JSON cujo imagePath não corresponde ao nome do JSON.",
@@ -181,8 +201,14 @@ def main() -> int:
     if not 0.0 <= args.val_ratio < 1.0:
         raise SystemExit("--val-ratio deve estar entre 0 e 1.")
 
-    if args.output.exists():
-        print(f"Aviso: arquivos existentes em {args.output} podem ser substituídos.")
+    if args.output.exists() and args.clean:
+        shutil.rmtree(args.output)
+        print(f"Saída anterior removida: {args.output}")
+    elif args.output.exists():
+        print(
+            f"Aviso: arquivos existentes em {args.output} podem permanecer. "
+            "Use --clean para reconstrução reproduzível."
+        )
 
     train_stats = convert_directory(
         args.train_source,

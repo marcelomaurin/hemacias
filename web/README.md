@@ -351,3 +351,6 @@ Para bancos existentes, execute:
 ```sql
 web/migrations/007_ai_models.sql
 ```
+
+
+O caminho cadastrado do modelo deve ser acessível ao processo Python que executa a inferência. Para modelos cadastrados, o cliente valida o SHA-256 antes de abrir o YOLO. Quando `--model` é usado como override, o caminho e o SHA-256 efetivamente executados também são gravados como snapshot da contagem.

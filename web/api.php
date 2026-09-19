@@ -38,6 +38,31 @@ try {
              ORDER BY cpi.protocol_id,cpi.sort_order,cit.name"
         )->fetchAll();
 
+        foreach($items as &$item){
+            foreach(['id','ai_enabled','annotation_enabled','summary_enabled','sort_order'] as $key){
+                $item[$key]=(int)$item[$key];
+            }
+            $item['confidence_threshold']=(float)$item['confidence_threshold'];
+            $item['yolo_class_id']=$item['yolo_class_id']===null?null:(int)$item['yolo_class_id'];
+        }
+        unset($item);
+
+        foreach($protocols as &$protocol){
+            foreach(['id','min_fields','min_valid_fields','require_quality'] as $key){
+                $protocol[$key]=(int)$protocol[$key];
+            }
+            $protocol['default_magnification']=$protocol['default_magnification']===null?null:(float)$protocol['default_magnification'];
+        }
+        unset($protocol);
+
+        foreach($pitems as &$pi){
+            foreach(['protocol_id','item_type_id','ai_enabled','annotation_enabled','summary_enabled','required_item','sort_order'] as $key){
+                $pi[$key]=(int)$pi[$key];
+            }
+            $pi['confidence_threshold']=(float)$pi['confidence_threshold'];
+        }
+        unset($pi);
+
         $byProtocol=[];
         foreach($pitems as $row){
             $byProtocol[(int)$row['protocol_id']][]=$row;
@@ -193,9 +218,18 @@ try {
         $countId = (int)$pdo->lastInsertId();
 
         $components = is_array($d['components'] ?? null) ? $d['components'] : [];
+        $stProtocol=$pdo->prepare('SELECT protocol_id FROM samples WHERE id=?');
+        $stProtocol->execute([$sampleId]);
+        $sampleProtocolId=(int)($stProtocol->fetchColumn()?:0);
+
         $stType=$pdo->prepare(
-            'SELECT id,name,default_unit,confidence_threshold
-             FROM count_item_types WHERE code=? AND active=1'
+            'SELECT cit.id,cit.name,cit.default_unit,
+                    COALESCE(cpi.confidence_threshold,cit.confidence_threshold) confidence_threshold
+             FROM count_item_types cit
+             LEFT JOIN count_protocol_items cpi
+               ON cpi.item_type_id=cit.id AND cpi.protocol_id=?
+             WHERE cit.code=? AND cit.active=1
+               AND (?=0 OR cpi.protocol_id IS NOT NULL)'
         );
         $stComp = $pdo->prepare(
             'INSERT INTO count_components(
@@ -204,16 +238,28 @@ try {
         );
         foreach ($components as $component) {
             $componentCode=strtolower(trim((string)($component['code'] ?? 'outro')));
-            $stType->execute([$componentCode]);
+            $stType->execute([$sampleProtocolId,$componentCode,$sampleProtocolId]);
             $type=$stType->fetch();
+            if(!$type){
+                throw new RuntimeException("Componente não permitido pelo protocolo: {$componentCode}");
+            }
+
+            $confidence=isset($component['confidence']) ? (float)$component['confidence'] : null;
+            $threshold=(float)$type['confidence_threshold'];
+            if($confidence!==null && $confidence<$threshold){
+                throw new RuntimeException(
+                    "Confiança média abaixo do limiar para {$componentCode}: {$confidence} < {$threshold}"
+                );
+            }
+
             $stComp->execute([
                 $countId,
-                $type ? (int)$type['id'] : null,
+                (int)$type['id'],
                 $componentCode,
-                $type ? (string)$type['name'] : (string)($component['name'] ?? 'Outro'),
+                (string)$type['name'],
                 max(0, (int)($component['quantity'] ?? 0)),
-                $type ? (string)$type['default_unit'] : (string)($component['unit'] ?? 'objetos/campo'),
-                isset($component['confidence']) ? (float)$component['confidence'] : null,
+                (string)$type['default_unit'],
+                $confidence,
                 isset($component['metadata'])
                     ? json_encode($component['metadata'], JSON_UNESCAPED_UNICODE)
                     : null,

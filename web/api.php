@@ -208,28 +208,33 @@ try {
         $fieldId = (int)$pdo->lastInsertId();
 
         $modelId=(int)($d['model_id']??0);
-        $modelVersion=null;$modelSha=null;
+        $modelVersion=null;
+        $modelSha=strtolower(trim((string)($d['model_sha256']??'')))?:null;
+        $modelPath=trim((string)($d['model_path']??''))?:null;
+        if($modelSha!==null && !preg_match('/^[a-f0-9]{64}$/',$modelSha)){
+            throw new RuntimeException('SHA-256 do modelo inválido.');
+        }
         if($modelId>0){
             $stModel=$pdo->prepare("SELECT version,sha256,status FROM ai_models WHERE id=? AND status IN ('VALIDACAO','APROVADO')");
             $stModel->execute([$modelId]);
             $modelRow=$stModel->fetch();
             if(!$modelRow) throw new RuntimeException('Modelo informado não existe.');
             $modelVersion=(string)$modelRow['version'];
-            $modelSha=$modelRow['sha256'];
+            $modelSha=$modelRow['sha256'] ?: $modelSha;
         }
 
         $st = $pdo->prepare(
             'INSERT INTO counts(
-                sample_id,field_id,method,algorithm_version,model_id,model_version_snapshot,model_sha256_snapshot,
+                sample_id,field_id,method,algorithm_version,model_id,model_version_snapshot,model_sha256_snapshot,model_path_snapshot,
                 scale_label,magnification,pixel_size_um,focus_score,image_quality,total_cells,notes,source
-             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
         );
         $st->execute([
             $sampleId,
             $fieldId,
             $d['method'] ?? 'opencv-hough',
             $d['algorithm_version'] ?? null,
-            $modelId?:null,$modelVersion,$modelSha,
+            $modelId?:null,$modelVersion,$modelSha,$modelPath,
             $d['scale_label'] ?? null,
             $d['magnification'] ?? null,
             $d['pixel_size_um'] ?? null,

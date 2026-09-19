@@ -59,8 +59,8 @@ def parse_args():
     parser.add_argument("--sample-code", help="Código da amostra")
     parser.add_argument("--protocol-code", default="sangue_padrao",
                         help="Código do protocolo de contagem cadastrado no servidor.")
-    parser.add_argument("--scale-label", default="40x", help="Escala/objetiva registrada")
-    parser.add_argument("--magnification", type=float, default=40.0, help="Magnificação")
+    parser.add_argument("--scale-label", default=None, help="Escala/objetiva; usa o protocolo quando omitida.")
+    parser.add_argument("--magnification", type=float, default=None, help="Magnificação; usa o protocolo quando omitida.")
     parser.add_argument("--pixel-size-um", type=float, default=None, help="Tamanho de pixel calibrado em µm")
     parser.add_argument("--allow-low-quality-save", action="store_true",
                         help="Permite salvar campo rejeitado pelo controle de qualidade.")
@@ -229,7 +229,15 @@ def main() -> int:
             if key == ord("c"):
                 counter.reset()
             if key == ord("s"):
-                if quality.status == "REJEITADA" and not args.allow_low_quality_save:
+                quality_required = (
+                    bool(active_protocol.get("require_quality", True))
+                    if active_protocol else True
+                )
+                if (
+                    quality_required
+                    and quality.status == "REJEITADA"
+                    and not args.allow_low_quality_save
+                ):
                     print(
                         "Campo bloqueado pelo controle de qualidade: "
                         + (", ".join(quality.reasons) or "qualidade insuficiente")
@@ -326,8 +334,23 @@ def main() -> int:
                             else ("opencv-watershed" if args.method == "watershed" else "yolo-seg")
                         ),
                         algorithm_version="1.5",
-                        scale_label=args.scale_label,
-                        magnification=args.magnification,
+                        scale_label=(
+                            args.scale_label
+                            or (
+                                active_protocol.get("default_scale_label")
+                                if active_protocol else None
+                            )
+                            or "40x"
+                        ),
+                        magnification=(
+                            args.magnification
+                            if args.magnification is not None
+                            else (
+                                active_protocol.get("default_magnification")
+                                if active_protocol else None
+                            )
+                            or 40.0
+                        ),
                         pixel_size_um=args.pixel_size_um,
                         focus_score=result.focus_score,
                         image_quality=quality.status,

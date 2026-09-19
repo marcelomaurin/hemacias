@@ -187,3 +187,74 @@ Ela calcula MAE, erro percentual médio (quando aplicável), viés médio e grav
 ## Licença
 
 Defina uma licença antes de distribuir ou reutilizar o projeto externamente.
+
+
+## Segmentação supervisionada (YOLO)
+
+O projeto agora possui um terceiro método de análise baseado em segmentação supervisionada.
+
+### 1. Converter as anotações LabelMe
+
+```bash
+python tools/labelme_to_yolo_seg.py
+```
+
+O conversor cria:
+
+```text
+datasets/hemacias_seg/
+├── dataset.yaml
+├── images/
+│   ├── train/
+│   ├── val/
+│   └── test/
+└── labels/
+    ├── train/
+    ├── val/
+    └── test/
+```
+
+O conversor prioriza a imagem com o mesmo nome do JSON porque existem anotações antigas cujo campo `imagePath` pode não corresponder ao arquivo real.
+
+### 2. Instalar dependências de IA
+
+```bash
+pip install -r requirements-ml.txt
+```
+
+### 3. Treinar
+
+```bash
+python tools/train_yolo_seg.py \
+  --data datasets/hemacias_seg/dataset.yaml \
+  --epochs 100 \
+  --imgsz 640
+```
+
+A documentação atual do Ultralytics recomenda usar um modelo de segmentação pré-treinado para iniciar o treino de um dataset customizado. O script usa `yolo26n-seg.pt` como padrão.
+
+### 4. Usar o modelo treinado
+
+Depois do treinamento, use o `best.pt`:
+
+```bash
+python teste04.py \
+  --method yolo \
+  --model runs/hemacias/seg/weights/best.pt
+```
+
+Com o gerenciador web:
+
+```bash
+python teste04.py \
+  --method yolo \
+  --model runs/hemacias/seg/weights/best.pt \
+  --api-url https://servidor/hemacias/web \
+  --api-key SUA_CHAVE \
+  --patient-name "Paciente de teste" \
+  --sample-code AMOSTRA-001
+```
+
+Cada previsão registra classe, confiança, caixa delimitadora e polígono da máscara quando disponível.
+
+> O modelo treinado deve ser validado em uma base separada antes de qualquer uso laboratorial.

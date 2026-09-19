@@ -21,6 +21,7 @@ if(!$image){http_response_code(404);exit('Imagem não encontrada.');}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Anotação - Hemácias</title>
 <link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/annotation.css">
 </head>
 <body>
 <header><strong>Hemácias · Anotação</strong><nav>
@@ -48,6 +49,7 @@ if(!$image){http_response_code(404);exit('Imagem não encontrada.');}
 <button type="button" id="finishPolygon">Finalizar polígono</button>
 <button type="button" id="undoPoint">Desfazer ponto</button>
 <button type="button" id="deleteSelected">Excluir selecionada</button>
+<button type="button" id="importAuto">Importar detecção automática</button>
 <button type="button" id="saveAnnotations">Salvar revisão</button>
 <a class="button secondary" href="export_annotation.php?image_id=<?=$imageId?>&format=labelme">Exportar LabelMe</a>
 <a class="button secondary" href="export_annotation.php?image_id=<?=$imageId?>&format=yolo">Exportar YOLO</a>
@@ -139,6 +141,18 @@ document.getElementById('deleteSelected').onclick=()=>{
   if(READ_ONLY)return;
   if(selectedIndex>=0){annotations.splice(selectedIndex,1);selectedIndex=-1;redraw();}
 };
+document.getElementById('importAuto').onclick=async()=>{
+  if(READ_ONLY){statusBox.textContent='Perfil somente leitura.';return;}
+  if(annotations.length && !confirm('Substituir a revisão atual pelas detecções automáticas?'))return;
+  const body=new URLSearchParams({csrf:CSRF,action:'import_auto',image_id:String(IMAGE_ID)});
+  statusBox.textContent='Importando detecções automáticas...';
+  const response=await fetch('annotation_api.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+  const data=await response.json();
+  if(!data.ok){statusBox.textContent='Erro: '+data.error;return;}
+  statusBox.textContent='Importadas '+data.imported+' detecção(ões). Revise antes de salvar.';
+  await loadAnnotations();
+};
+
 document.getElementById('saveAnnotations').onclick=async()=>{
   if(READ_ONLY){statusBox.textContent='Perfil somente leitura.';return;}
   if(currentPoints.length){statusBox.textContent='Finalize ou desfaça o polígono em edição antes de salvar.';return;}

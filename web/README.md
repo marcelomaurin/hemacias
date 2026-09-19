@@ -260,3 +260,60 @@ Para bancos existentes, execute:
 ```sql
 web/migrations/005_microscopic_fields.sql
 ```
+
+
+## Gestão central de componentes e protocolos
+
+O sistema possui uma camada de configuração em:
+
+```text
+resources.php
+```
+
+Acesso restrito a ADMIN.
+
+### Componentes de contagem
+
+Cada componente possui:
+
+- código;
+- nome;
+- categoria;
+- cor;
+- unidade padrão;
+- ativo/inativo;
+- habilitado para IA;
+- habilitado para anotação;
+- habilitado para consolidação;
+- limiar mínimo de confiança;
+- ID da classe YOLO;
+- ordem de apresentação.
+
+Os componentes padrão são hemácia, leucócito, plaqueta, artefato e outro, mas novas classes podem ser cadastradas sem alteração do código-fonte.
+
+### Protocolos
+
+Um protocolo define:
+
+- componentes participantes;
+- componentes obrigatórios;
+- limiar de confiança por componente;
+- se o componente entra na consolidação;
+- número mínimo de campos;
+- número mínimo de campos válidos;
+- escala/magnificação padrão;
+- exigência de controle de qualidade.
+
+As amostras passam a possuir um protocolo associado.
+
+### Integração
+
+A ação de API `config` disponibiliza componentes e protocolos ao cliente Python. O `teste04.py` usa a configuração do protocolo para nome, unidade e limiar de confiança ao persistir detecções.
+
+A anotação web e os exportadores LabelMe/YOLO também usam o cadastro central. O ID YOLO deixa de ser fixado em código.
+
+Para bancos existentes, execute:
+
+```sql
+web/migrations/006_count_resources.sql
+```

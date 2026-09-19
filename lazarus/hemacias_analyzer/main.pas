@@ -51,6 +51,8 @@ type
     FBtnLoad: TButton;
     FBtnAnalyze: TButton;
     FBtnSend: TButton;
+    FBtnNewField: TButton;
+    FBtnSummary: TButton;
     FBtnExport: TButton;
     FBtnAIReport: TButton;
     FBtnModel: TButton;
@@ -89,6 +91,10 @@ type
     FModelID: Int64;
     FModelSHA256: string;
     FModelVersion: string;
+    FQualityStatus: string;
+    FQualityScore: Double;
+    FFocusScore: Double;
+    FQualityReason: string;
 
     procedure BuildUI;
     procedure InitializeAI;
@@ -99,6 +105,8 @@ type
     procedure SelectModelClick(Sender: TObject);
     procedure AnalyzeClick(Sender: TObject);
     procedure SendClick(Sender: TObject);
+    procedure NewFieldClick(Sender: TObject);
+    procedure SummaryClick(Sender: TObject);
     procedure ExportClick(Sender: TObject);
     procedure AIReportClick(Sender: TObject);
     procedure ClearClick(Sender: TObject);
@@ -114,11 +122,13 @@ type
     function IsClassEnabled(const ACode: string): Boolean;
     function ComputeFileSHA256(const AFileName: string): string;
     function VerifyConfiguredModel: Boolean;
+    function EvaluateImageQuality: Boolean;
 
     procedure BuildSummaries;
     procedure UpdateGrid;
     procedure DrawDetections;
     procedure BuildDeterministicReport;
+    procedure ShowSampleSummary;
     procedure PopulateProtocols(AConfig: TJSONObject);
     procedure ApplySampleConfig(AConfig: TJSONObject);
     procedure LoadProtocolItems(AProtocol: TJSONObject);
@@ -183,6 +193,10 @@ begin
   FApi := nil;
   FPatientID := 0;
   FSampleID := 0;
+  FQualityStatus := 'REVISAR';
+  FQualityScore := 0;
+  FFocusScore := 0;
+  FQualityReason := '';
   BuildUI;
   InitializeAI;
 end;
@@ -219,28 +233,42 @@ begin
 
   FBtnSend := TButton.Create(Self);
   FBtnSend.Parent := FTop;
-  FBtnSend.SetBounds(245, 10, 115, 32);
+  FBtnSend.SetBounds(245, 10, 105, 32);
   FBtnSend.Caption := 'Enviar campo';
   FBtnSend.OnClick := @SendClick;
   FBtnSend.Enabled := False;
 
+  FBtnNewField := TButton.Create(Self);
+  FBtnNewField.Parent := FTop;
+  FBtnNewField.SetBounds(360, 10, 95, 32);
+  FBtnNewField.Caption := 'Novo campo';
+  FBtnNewField.OnClick := @NewFieldClick;
+  FBtnNewField.Enabled := False;
+
+  FBtnSummary := TButton.Create(Self);
+  FBtnSummary.Parent := FTop;
+  FBtnSummary.SetBounds(465, 10, 105, 32);
+  FBtnSummary.Caption := 'Consolidado';
+  FBtnSummary.OnClick := @SummaryClick;
+  FBtnSummary.Enabled := False;
+
   FBtnExport := TButton.Create(Self);
   FBtnExport.Parent := FTop;
-  FBtnExport.SetBounds(370, 10, 115, 32);
+  FBtnExport.SetBounds(580, 10, 115, 32);
   FBtnExport.Caption := 'Emitir resultado';
   FBtnExport.OnClick := @ExportClick;
   FBtnExport.Enabled := False;
 
   FBtnAIReport := TButton.Create(Self);
   FBtnAIReport.Parent := FTop;
-  FBtnAIReport.SetBounds(495, 10, 125, 32);
+  FBtnAIReport.SetBounds(705, 10, 125, 32);
   FBtnAIReport.Caption := 'Parecer com IA';
   FBtnAIReport.OnClick := @AIReportClick;
   FBtnAIReport.Enabled := False;
 
   FBtnClear := TButton.Create(Self);
   FBtnClear.Parent := FTop;
-  FBtnClear.SetBounds(630, 10, 80, 32);
+  FBtnClear.SetBounds(840, 10, 80, 32);
   FBtnClear.Caption := 'Limpar';
   FBtnClear.OnClick := @ClearClick;
 
@@ -540,8 +568,11 @@ begin
     Cfg.Free;
   end;
 
+  FBtnSummary.Enabled := True;
+  FBtnNewField.Enabled := True;
   Log(Format('Paciente #%d / amostra #%d vinculados ao protocolo %s.',
     [FPatientID, FSampleID, FProtocolCode]));
+  ShowSampleSummary;
   SetStatus('Amostra vinculada ao servidor.');
 end;
 
@@ -643,6 +674,10 @@ begin
   FImage.Picture.LoadFromFile(FCurrentImage);
   SetLength(FObjects, 0);
   SetLength(FSummaries, 0);
+  FQualityStatus := 'REVISAR';
+  FQualityScore := 0;
+  FFocusScore := 0;
+  FQualityReason := '';
   UpdateGrid;
   FBtnExport.Enabled := False;
   FBtnAIReport.Enabled := False;
@@ -773,6 +808,59 @@ begin
       Exit;
     end;
   end;
+  Result := True;
+end;
+
+function TfrmMain.EvaluateImageQuality: Boolean;
+var
+  P, S, ReasonsText: string;
+  FS: TFormatSettings;
+begin
+  Result := False;
+  if (FCurrentImage = '') or (not FileExists(FCurrentImage)) then Exit;
+
+  P := StringReplace(FCurrentImage, '\', '\\', [rfReplaceAll]);
+  P := StringReplace(P, '"', '\"', [rfReplaceAll]);
+
+  S :=
+    'import cv2, numpy as np' + LineEnding +
+    '_q_img=cv2.imread(r"' + P + '")' + LineEnding +
+    'if _q_img is None: raise RuntimeError("imagem não pôde ser carregada")' + LineEnding +
+    '_q_gray=cv2.cvtColor(_q_img,cv2.COLOR_BGR2GRAY)' + LineEnding +
+    '_q_focus=float(cv2.Laplacian(_q_gray,cv2.CV_64F).var())' + LineEnding +
+    '_q_mean=float(np.mean(_q_gray))' + LineEnding +
+    '_q_shadow=float(np.mean(_q_gray<=8))' + LineEnding +
+    '_q_high=float(np.mean(_q_gray>=247))' + LineEnding +
+    '_q_h,_q_w=_q_gray.shape[:2]' + LineEnding +
+    '_q_ys=np.linspace(0,_q_h,4,dtype=int); _q_xs=np.linspace(0,_q_w,4,dtype=int)' + LineEnding +
+    '_q_tiles=[float(np.mean(_q_gray[_q_ys[y]:_q_ys[y+1],_q_xs[x]:_q_xs[x+1]])) for y in range(3) for x in range(3)]' + LineEnding +
+    '_q_cv=float(np.std(_q_tiles)/max(np.mean(_q_tiles),1.0))' + LineEnding +
+    '_q_reasons=[]; _q_pen=0.0; _q_hard=False' + LineEnding +
+    'if _q_focus<35: _q_reasons.append("foco abaixo do mínimo"); _q_pen+=55; _q_hard=True' + LineEnding +
+    'if _q_mean<35: _q_reasons.append("imagem muito escura"); _q_pen+=30' + LineEnding +
+    'elif _q_mean>225: _q_reasons.append("imagem muito clara"); _q_pen+=30' + LineEnding +
+    'if _q_shadow>0.12: _q_reasons.append("excesso de pixels escuros/saturados"); _q_pen+=min(25,_q_shadow*100)' + LineEnding +
+    'if _q_high>0.12: _q_reasons.append("excesso de pixels claros/saturados"); _q_pen+=min(25,_q_high*100)' + LineEnding +
+    'if _q_cv>0.28: _q_reasons.append("iluminação muito desigual"); _q_pen+=min(30,_q_cv*60)' + LineEnding +
+    '_q_score=max(0.0,100.0-_q_pen)' + LineEnding +
+    '_q_status="REJEITADA" if (_q_hard or _q_score<45) else ("REVISAR" if (_q_score<75 or _q_reasons) else "ACEITA")' + LineEnding +
+    '_q_reason="; ".join(_q_reasons)' + LineEnding +
+    '_q_ok=True';
+
+  if not FConnector.ExecString(S) then
+  begin
+    Log('Falha ao avaliar qualidade: ' + FConnector.LastError);
+    Exit;
+  end;
+  if FConnector.GetVar('_q_ok') <> 'True' then Exit;
+
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+  FQualityStatus := Trim(FConnector.GetVar('_q_status'));
+  FQualityScore := StrToFloatDef(StringReplace(FConnector.GetVar('_q_score'), ',', '.', [rfReplaceAll]), 0, FS);
+  FFocusScore := StrToFloatDef(StringReplace(FConnector.GetVar('_q_focus'), ',', '.', [rfReplaceAll]), 0, FS);
+  ReasonsText := Trim(FConnector.GetVar('_q_reason'));
+  FQualityReason := ReasonsText;
   Result := True;
 end;
 
@@ -914,6 +1002,9 @@ begin
     if FModelVersion <> '' then S.Add('Versão cadastrada: ' + FModelVersion);
     S.Add('Confiança global mínima: ' + FormatFloat('0.000', FYolo.ConfidenceThreshold));
     if FYolo.ImageSize > 0 then S.Add('imgsz: ' + IntToStr(FYolo.ImageSize));
+    S.Add('Qualidade: ' + FQualityStatus + ' | score: ' + FormatFloat('0.0', FQualityScore) +
+      ' | foco: ' + FormatFloat('0.0', FFocusScore));
+    if FQualityReason <> '' then S.Add('Qualidade - observações: ' + FQualityReason);
     S.Add('Detecções brutas: ' + IntToStr(Length(FObjects)));
     S.Add('');
     S.Add('CONTAGEM POR COMPONENTE');
@@ -945,6 +1036,26 @@ begin
     ShowMessage('Python não está inicializado: ' + FConnector.LastError); Exit;
   end;
   if not VerifyConfiguredModel then Exit;
+
+  SetStatus('Avaliando qualidade da imagem...');
+  Application.ProcessMessages;
+  if not EvaluateImageQuality then
+  begin
+    ShowMessage('Não foi possível avaliar a qualidade da imagem.');
+    Exit;
+  end;
+  Log(Format('Qualidade: %s | score %.1f | foco %.1f%s',
+    [FQualityStatus, FQualityScore, FFocusScore,
+     IfThen(FQualityReason<>'', ' | '+FQualityReason, '')]));
+  if FQualityStatus = 'REJEITADA' then
+  begin
+    ShowMessage('Campo rejeitado pelo controle de qualidade.' + LineEnding +
+      'Score: ' + FormatFloat('0.0', FQualityScore) + LineEnding +
+      FQualityReason);
+    BuildDeterministicReport;
+    FBtnExport.Enabled := True;
+    Exit;
+  end;
 
   FYolo.ModelPath := FEdModel.Text;
   FYolo.ConfidenceThreshold := ConfidenceValue;
@@ -998,7 +1109,10 @@ begin
   Result.Add('model_path', FYolo.ModelPath);
   if FScaleLabel <> '' then Result.Add('scale_label', FScaleLabel);
   if FMagnification > 0 then Result.Add('magnification', FMagnification);
-  Result.Add('image_quality', 'REVISAR');
+  Result.Add('image_quality', FQualityStatus);
+  Result.Add('quality_score', FQualityScore);
+  Result.Add('focus_score', FFocusScore);
+  if FQualityReason <> '' then Result.Add('quality_reason', FQualityReason);
   Result.Add('total_cells', AcceptedTotal);
   Result.Add('notes', 'Campo enviado pelo Hemácias Analyzer Lazarus.');
 
@@ -1074,9 +1188,127 @@ begin
       [FieldNo, CountID, FieldID, ImageID]));
     SetStatus(Format('Campo #%d registrado no servidor.', [FieldNo]));
     FBtnSend.Enabled := False;
+    FBtnNewField.Enabled := True;
+    FBtnSummary.Enabled := True;
+    ShowSampleSummary;
   finally
     Screen.Cursor := crDefault;
     Payload.Free;
+  end;
+end;
+
+procedure TfrmMain.NewFieldClick(Sender: TObject);
+begin
+  SetLength(FObjects, 0);
+  SetLength(FSummaries, 0);
+  FCurrentImage := '';
+  FEdImage.Clear;
+  FImage.Picture.Clear;
+  FLastDeterministicReport := '';
+  FQualityStatus := 'REVISAR';
+  FQualityScore := 0;
+  FFocusScore := 0;
+  FQualityReason := '';
+  UpdateGrid;
+  FBtnSend.Enabled := False;
+  FBtnExport.Enabled := False;
+  FBtnAIReport.Enabled := False;
+  FMemo.Clear;
+  if FSampleID > 0 then
+    ShowSampleSummary;
+  SetStatus('Novo campo: carregue a próxima imagem microscópica.');
+end;
+
+procedure TfrmMain.SummaryClick(Sender: TObject);
+begin
+  ShowSampleSummary;
+end;
+
+procedure TfrmMain.ShowSampleSummary;
+var
+  Obj: TJSONObject;
+  D: TJSONData;
+  Totals: TJSONObject;
+  Arr: TJSONArray;
+  Row: TJSONObject;
+  I: Integer;
+  S: TStringList;
+  Ready: Boolean;
+begin
+  if (FApi = nil) or (FSampleID < 1) then Exit;
+  Obj := FApi.GetSampleSummary(FSampleID);
+  if Obj = nil then
+  begin
+    Log('Falha ao consultar consolidado: ' + FApi.LastError);
+    Exit;
+  end;
+
+  S := TStringList.Create;
+  try
+    S.Add('CONSOLIDADO DA AMOSTRA');
+    S.Add('');
+    S.Add('Paciente: ' + FEdPatientName.Text);
+    S.Add('Amostra: ' + FEdSampleCode.Text);
+    S.Add('Protocolo: ' + FProtocolCode);
+
+    D := Obj.Find('totals');
+    if D is TJSONObject then
+    begin
+      Totals := TJSONObject(D);
+      Ready := ObjInt(Totals, 'ready', 0) <> 0;
+      S.Add(Format('Campos: %d | válidos: %d | rejeitados/excluídos: %d | revisar: %d',
+        [ObjInt(Totals,'fields',0), ObjInt(Totals,'accepted',0),
+         ObjInt(Totals,'rejected',0), ObjInt(Totals,'review',0)]));
+      S.Add(Format('Meta do protocolo: %d campos totais / %d válidos.',
+        [ObjInt(Totals,'min_fields',0), ObjInt(Totals,'min_valid_fields',0)]));
+      if Ready then S.Add('Status: PRONTO PARA CONSOLIDAÇÃO.')
+      else S.Add('Status: ainda não atingiu os critérios mínimos do protocolo.');
+    end;
+
+    S.Add('');
+    S.Add('RESULTADOS CONSOLIDADOS');
+    D := Obj.Find('summary');
+    if D is TJSONArray then
+    begin
+      Arr := TJSONArray(D);
+      if Arr.Count = 0 then
+        S.Add('Ainda não há campos ACEITOS e incluídos na consolidação.')
+      else
+      for I := 0 to Arr.Count - 1 do
+      begin
+        Row := TJSONObject(Arr.Items[I]);
+        S.Add(Format('%s | campos=%d | média=%.2f | mediana=%.2f | mín=%.2f | máx=%.2f | DP=%.2f',
+          [ObjStr(Row,'name',ObjStr(Row,'code','')),
+           ObjInt(Row,'fields',0), ObjFloat(Row,'mean',0), ObjFloat(Row,'median',0),
+           ObjFloat(Row,'min',0), ObjFloat(Row,'max',0), ObjFloat(Row,'stddev',0)]));
+      end;
+    end;
+
+    S.Add('');
+    S.Add('CAMPOS');
+    D := Obj.Find('fields');
+    if D is TJSONArray then
+    begin
+      Arr := TJSONArray(D);
+      for I := 0 to Arr.Count - 1 do
+      begin
+        Row := TJSONObject(Arr.Items[I]);
+        S.Add(Format('#%d | %s | qualidade=%.1f | foco=%.1f | incluído=%s',
+          [ObjInt(Row,'field_no',0), ObjStr(Row,'status',''),
+           ObjFloat(Row,'quality_score',0), ObjFloat(Row,'focus_score',0),
+           IfThen(ObjInt(Row,'included_in_summary',0)<>0,'sim','não')]));
+      end;
+    end;
+
+    S.Add('');
+    S.Add('Relatório experimental. Requer validação laboratorial.');
+    FMemo.Lines.Assign(S);
+    FLastDeterministicReport := S.Text;
+    FBtnExport.Enabled := True;
+    FBtnAIReport.Enabled := FChatConfigured;
+  finally
+    S.Free;
+    Obj.Free;
   end;
 end;
 
@@ -1221,6 +1453,8 @@ begin
   FBtnExport.Enabled := False;
   FBtnAIReport.Enabled := False;
   FBtnSend.Enabled := False;
+  FBtnSummary.Enabled := FSampleID > 0;
+  FBtnNewField.Enabled := FSampleID > 0;
   SetStatus('Pronto.');
 end;
 

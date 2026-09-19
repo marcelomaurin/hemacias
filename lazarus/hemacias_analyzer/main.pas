@@ -220,6 +220,43 @@ begin
   Result := (S='1') or (S='true') or (S='yes') or (S='sim');
 end;
 
+function PolygonStringToJSON(const S: string; AX1, AY1, AX2, AY2: Integer): TJSONArray;
+var
+  Tokens, XY: TStringList;
+  I: Integer;
+  P: TJSONArray;
+begin
+  Result := TJSONArray.Create;
+  Tokens := TStringList.Create;
+  XY := TStringList.Create;
+  try
+    ExtractStrings(['|'], [], PChar(S), Tokens);
+    for I := 0 to Tokens.Count - 1 do
+    begin
+      XY.Clear;
+      ExtractStrings([':'], [], PChar(Tokens[I]), XY);
+      if XY.Count >= 2 then
+      begin
+        P := TJSONArray.Create;
+        P.Add(StrToIntDef(XY[0], AX1));
+        P.Add(StrToIntDef(XY[1], AY1));
+        Result.Add(P);
+      end;
+    end;
+    if Result.Count < 3 then
+    begin
+      Result.Clear;
+      P := TJSONArray.Create; P.Add(AX1); P.Add(AY1); Result.Add(P);
+      P := TJSONArray.Create; P.Add(AX2); P.Add(AY1); Result.Add(P);
+      P := TJSONArray.Create; P.Add(AX2); P.Add(AY2); Result.Add(P);
+      P := TJSONArray.Create; P.Add(AX1); P.Add(AY2); Result.Add(P);
+    end;
+  finally
+    XY.Free;
+    Tokens.Free;
+  end;
+end;
+
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
   Caption := 'Analisador de Lâminas - Lazarus AI Suite';
@@ -1242,7 +1279,11 @@ begin
         Det.Add('y1', FObjects[J].Y1);
         Det.Add('x2', FObjects[J].X2);
         Det.Add('y2', FObjects[J].Y2);
-        if FObjects[J].Polygon <> '' then Det.Add('polygon', FObjects[J].Polygon);
+        Det.Add('polygon', PolygonStringToJSON(
+          FObjects[J].Polygon,
+          FObjects[J].X1, FObjects[J].Y1,
+          FObjects[J].X2, FObjects[J].Y2
+        ));
         Dets.Add(Det);
       end;
     end;
@@ -1767,7 +1808,11 @@ begin
       Det.Add('confidence', FObjects[I].Confidence);
       Det.Add('x1', FObjects[I].X1); Det.Add('y1', FObjects[I].Y1);
       Det.Add('x2', FObjects[I].X2); Det.Add('y2', FObjects[I].Y2);
-      if FObjects[I].Polygon <> '' then Det.Add('polygon', FObjects[I].Polygon);
+      Det.Add('polygon', PolygonStringToJSON(
+        FObjects[I].Polygon,
+        FObjects[I].X1, FObjects[I].Y1,
+        FObjects[I].X2, FObjects[I].Y2
+      ));
       Dets.Add(Det);
     end;
 

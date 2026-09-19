@@ -7,7 +7,8 @@ $action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
 
 try {
     if ($action === 'config') {
-        $sampleId=(int)($_GET['sample_id'] ?? 0);
+        $cfgInput=json_input();
+        $sampleId=(int)($cfgInput['sample_id'] ?? $_GET['sample_id'] ?? 0);
         $items=db()->query(
             "SELECT id,code,name,category,color_hex,default_unit,ai_enabled,annotation_enabled,
                     summary_enabled,confidence_threshold,yolo_class_id,sort_order

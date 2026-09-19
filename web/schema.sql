@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS counts (
     image_quality VARCHAR(40) NULL,
     total_cells INT UNSIGNED NULL,
     notes TEXT NULL,
-    source ENUM('WEB','PYTHON','IMPORT') NOT NULL DEFAULT 'WEB',
+    source ENUM('WEB','PYTHON','LAZARUS','IMPORT') NOT NULL DEFAULT 'WEB',
     created_by BIGINT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_counts_sample FOREIGN KEY (sample_id) REFERENCES samples(id),

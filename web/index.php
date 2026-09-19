@@ -188,6 +188,7 @@ if ($page === 'count') {
       <b>Versão algoritmo:</b> <?=h($count['algorithm_version'])?> &nbsp;
       <b>Modelo:</b> <?=h($count['model_name']?:'—')?> <?=h($count['model_version']?:'')?> &nbsp;
       <b>SHA:</b> <?=h($count['model_sha256_snapshot']?substr((string)$count['model_sha256_snapshot'],0,12).'…':'—')?> &nbsp;
+      <b>Arquivo:</b> <?=h($count['model_path_snapshot']?:'—')?> &nbsp;
       <b>Escala:</b> <?=h($count['scale_label'])?> &nbsp;
       <b>Magnificação:</b> <?=h((string)$count['magnification'])?> &nbsp;
       <b>Pixel:</b> <?=h((string)$count['pixel_size_um'])?> µm<br>

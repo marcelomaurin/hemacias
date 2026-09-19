@@ -11,6 +11,32 @@ function ann_json(array $payload, int $status = 200): never {
     exit;
 }
 
+function normalize_ann_class_code(string $value): string {
+    $v=strtolower(trim($value));
+    $v=strtr($v,[
+        'á'=>'a','à'=>'a','ã'=>'a','â'=>'a','ä'=>'a',
+        'é'=>'e','è'=>'e','ê'=>'e','ë'=>'e',
+        'í'=>'i','ì'=>'i','î'=>'i','ï'=>'i',
+        'ó'=>'o','ò'=>'o','õ'=>'o','ô'=>'o','ö'=>'o',
+        'ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u','ç'=>'c'
+    ]);
+    $aliases=[
+        'hemacia'=>'hemacia',
+        'rbc'=>'hemacia',
+        'red blood cell'=>'hemacia',
+        'red_blood_cell'=>'hemacia',
+        'leucocito'=>'leucocito',
+        'wbc'=>'leucocito',
+        'white blood cell'=>'leucocito',
+        'white_blood_cell'=>'leucocito',
+        'plaqueta'=>'plaqueta',
+        'platelet'=>'plaqueta',
+        'artefato'=>'artefato',
+        'artifact'=>'artefato',
+    ];
+    return $aliases[$v]??$v;
+}
+
 if (($user['role'] ?? '') === 'LEITURA' && $_SERVER['REQUEST_METHOD'] !== 'GET') {
     ann_json(['ok'=>false,'error'=>'Perfil somente leitura.'],403);
 }
@@ -84,7 +110,7 @@ if($action==='import_auto'){
                     ];
                 }
             }
-            $code=strtolower((string)($det['class_name']??''));
+            $code=normalize_ann_class_code((string)($det['class_name']??''));
             $stType=db()->prepare(
                 'SELECT id,code,name FROM count_item_types WHERE code=? AND active=1 AND annotation_enabled=1'
             );
@@ -152,7 +178,7 @@ if($action==='save_all'){
     $clean=[];
 
     foreach($items as $idx=>$item){
-        $classCode=strtolower(trim((string)($item['class_code']??'')));
+        $classCode=normalize_ann_class_code((string)($item['class_code']??''));
         $stType=db()->prepare(
             'SELECT id,code,name FROM count_item_types WHERE code=? AND active=1 AND annotation_enabled=1'
         );

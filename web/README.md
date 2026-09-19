@@ -388,3 +388,35 @@ A divisão automática usa **PATIENT** como modo recomendado para validação. A
 - ID YOLO duplicado.
 
 O `manifest.json` exportado registra a proveniência do split e a política de vazamento utilizada.
+
+
+## Cliente desktop Lazarus
+
+O projeto:
+
+```text
+lazarus/hemacias_analyzer/
+```
+
+pode enviar contagens diretamente para a mesma API. A ação `count_create` aceita tanto o multipart usado pelo cliente Python quanto JSON usado pelo Lazarus. No JSON, a imagem pode ser enviada com:
+
+```json
+{
+  "image_name": "lamina.png",
+  "image_base64": "..."
+}
+```
+
+Contagens desse cliente são gravadas com:
+
+```text
+source = LAZARUS
+```
+
+Para banco existente, execute:
+
+```sql
+web/migrations/008_lazarus_source.sql
+```
+
+Se a análise informar `model_id` e o modelo cadastrado possuir SHA-256, a API rejeita um SHA diferente do registro.

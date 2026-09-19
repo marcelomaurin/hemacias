@@ -276,7 +276,11 @@ try {
     if ($action === 'count_create') {
         $pdo = db();
         $payload = $_POST['payload'] ?? '';
-        $d = json_decode((string)$payload, true);
+        if($payload!==''){
+            $d = json_decode((string)$payload, true);
+        }else{
+            $d = json_input();
+        }
         if (!is_array($d)) json_response(['ok'=>false,'error'=>'payload JSON inválido'], 422);
 
         $sampleId = (int)($d['sample_id'] ?? 0);
@@ -415,55 +419,94 @@ try {
         }
 
         $imageId = null;
+        $imageTempPath=null;
+        $imageOriginalName=null;
+        $imageSize=0;
+        $moveUploaded=false;
+
         if (!empty($_FILES['image']) && is_uploaded_file($_FILES['image']['tmp_name'])) {
             $file = $_FILES['image'];
-            if ((int)$file['size'] > (int)$config['app']['max_upload_bytes']) {
-                throw new RuntimeException('Imagem excede o limite configurado.');
+            $imageTempPath=(string)$file['tmp_name'];
+            $imageOriginalName=basename((string)$file['name']);
+            $imageSize=(int)$file['size'];
+            $moveUploaded=true;
+        } elseif (!empty($d['image_base64'])) {
+            $raw=base64_decode((string)$d['image_base64'],true);
+            if($raw===false){
+                throw new RuntimeException('Imagem Base64 inválida.');
             }
-
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mime = $finfo->file($file['tmp_name']);
-            $allowed = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
-            if (!isset($allowed[$mime])) {
-                throw new RuntimeException('Formato de imagem não permitido.');
+            $imageSize=strlen($raw);
+            $imageOriginalName=basename((string)($d['image_name']??'lamina.png'));
+            $imageTempPath=tempnam(sys_get_temp_dir(),'hemacias_img_');
+            if($imageTempPath===false || file_put_contents($imageTempPath,$raw)===false){
+                throw new RuntimeException('Falha ao preparar imagem enviada em Base64.');
             }
+        }
 
-            $dir = rtrim((string)$config['app']['upload_dir'], '/\\') . '/' . date('Y/m');
-            if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
-                throw new RuntimeException('Não foi possível criar diretório de upload.');
+        if($imageTempPath!==null){
+            try{
+                if ($imageSize > (int)$config['app']['max_upload_bytes']) {
+                    throw new RuntimeException('Imagem excede o limite configurado.');
+                }
+
+                $finfo = new finfo(FILEINFO_MIME_TYPE);
+                $mime = $finfo->file($imageTempPath);
+                $allowed = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
+                if (!isset($allowed[$mime])) {
+                    throw new RuntimeException('Formato de imagem não permitido.');
+                }
+
+                $dir = rtrim((string)$config['app']['upload_dir'], '/\\') . '/' . date('Y/m');
+                if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
+                    throw new RuntimeException('Não foi possível criar diretório de upload.');
+                }
+
+                $stored = bin2hex(random_bytes(16)) . '.' . $allowed[$mime];
+                $dest = $dir . '/' . $stored;
+                if($moveUploaded){
+                    if (!move_uploaded_file($imageTempPath, $dest)) {
+                        throw new RuntimeException('Falha ao armazenar imagem.');
+                    }
+                }else{
+                    if(!rename($imageTempPath,$dest)){
+                        if(!copy($imageTempPath,$dest)){
+                            throw new RuntimeException('Falha ao armazenar imagem Base64.');
+                        }
+                        @unlink($imageTempPath);
+                    }
+                    $imageTempPath=null;
+                }
+
+                [$width, $height] = getimagesize($dest) ?: [null, null];
+                $relative = date('Y/m') . '/' . $stored;
+                $sha = hash_file('sha256', $dest);
+
+                $stImg = $pdo->prepare(
+                    'INSERT INTO sample_images(
+                        sample_id,field_id,count_id,original_name,stored_name,mime_type,file_size,sha256,
+                        width_px,height_px,scale_label,magnification
+                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+                );
+                $stImg->execute([
+                    $sampleId,
+                    $fieldId,
+                    $countId,
+                    $imageOriginalName,
+                    $relative,
+                    $mime,
+                    $imageSize,
+                    $sha,
+                    $width,
+                    $height,
+                    $d['scale_label'] ?? null,
+                    $d['magnification'] ?? null,
+                ]);
+                $imageId = (int)$pdo->lastInsertId();
+            } finally {
+                if(!$moveUploaded && $imageTempPath!==null && is_file($imageTempPath)){
+                    @unlink($imageTempPath);
+                }
             }
-
-            $stored = bin2hex(random_bytes(16)) . '.' . $allowed[$mime];
-            $dest = $dir . '/' . $stored;
-            if (!move_uploaded_file($file['tmp_name'], $dest)) {
-                throw new RuntimeException('Falha ao armazenar imagem.');
-            }
-
-            [$width, $height] = getimagesize($dest) ?: [null, null];
-            $relative = date('Y/m') . '/' . $stored;
-            $sha = hash_file('sha256', $dest);
-
-            $stImg = $pdo->prepare(
-                'INSERT INTO sample_images(
-                    sample_id,field_id,count_id,original_name,stored_name,mime_type,file_size,sha256,
-                    width_px,height_px,scale_label,magnification
-                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
-            );
-            $stImg->execute([
-                $sampleId,
-                $fieldId,
-                $countId,
-                basename((string)$file['name']),
-                $relative,
-                $mime,
-                (int)$file['size'],
-                $sha,
-                $width,
-                $height,
-                $d['scale_label'] ?? null,
-                $d['magnification'] ?? null,
-            ]);
-            $imageId = (int)$pdo->lastInsertId();
         }
 
         $pdo->commit();

@@ -159,8 +159,15 @@ def main() -> int:
                             {
                                 "code": "hemacia",
                                 "name": "Hemácia",
-                                "quantity": result.stable_count,
+                                "quantity": result.instant_count,
                                 "unit": "células/campo",
+                                "metadata": {
+                                    "detections": [
+                                        {"x": x, "y": y, "radius_px": radius}
+                                        for x, y, radius in result.circles
+                                    ],
+                                    "stable_count_displayed": result.stable_count,
+                                },
                             }
                         ],
                         image_path=temp_path,
@@ -171,7 +178,7 @@ def main() -> int:
                         pixel_size_um=args.pixel_size_um,
                         focus_score=result.focus_score,
                         image_quality=result.image_quality,
-                        total_cells=result.stable_count,
+                        total_cells=result.instant_count,
                     )
                     print(
                         f"Contagem registrada: id={result_api.get('count_id')} "

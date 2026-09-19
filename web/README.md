@@ -164,3 +164,45 @@ labels/test
 ```
 
 A exportação em ZIP requer a extensão PHP `ZipArchive`.
+
+
+## Split automático sem vazamento
+
+O gerenciador de dataset agora possui divisão automática de imagens aprovadas.
+
+Modos disponíveis:
+
+- `SAMPLE`: mantém todas as imagens da mesma amostra no mesmo split;
+- `PATIENT`: mantém todas as imagens do mesmo paciente no mesmo split.
+
+O modo por paciente é mais rigoroso quando várias amostras do mesmo paciente podem compartilhar características visuais.
+
+Proporção padrão:
+
+```text
+TRAIN 70%
+VAL   15%
+TEST  15%
+```
+
+As proporções podem ser alteradas, desde que somem 1,0.
+
+A divisão usa uma `seed` informada pelo usuário e é determinística para o mesmo conjunto de grupos. O algoritmo tenta aproximar a proporção desejada pelo número de imagens sem quebrar grupos.
+
+Cada execução é registrada em `dataset_split_runs` com:
+
+- modo de agrupamento;
+- proporções;
+- seed;
+- quantidade de imagens elegíveis;
+- número de grupos;
+- resultado TRAIN/VAL/TEST;
+- usuário;
+- data/hora;
+- atribuições realizadas.
+
+Para bancos existentes, execute:
+
+```sql
+web/migrations/004_dataset_auto_split.sql
+```

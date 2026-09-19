@@ -383,3 +383,51 @@ Ela usa a biblioteca `marcelomaurin/CHATGPT` por meio de:
 - `TCHATGPT`.
 
 A aplicação carrega uma imagem individual de lâmina, executa o modelo YOLO configurado, conta objetos por classe, desenha as detecções, calcula confiança média e emite resultados em JSON, CSV ou TXT. O `TCHATGPT` é opcional e recebe apenas os resultados numéricos para redigir um resumo técnico; ele não realiza a contagem.
+
+
+## Validação automática contra ground truth revisado
+
+Depois que imagens analisadas forem revisadas manualmente e marcadas como `REVISADA` ou `APROVADA`, o modelo pode ser validado diretamente contra esse ground truth:
+
+```bash
+python tools/evaluate_reviewed_annotations.py \
+  --api-url https://servidor/hemacias/web \
+  --api-key SUA_CHAVE \
+  --model-id 1 \
+  --iou 0.50 \
+  --json-output runs/validation/blood-seg-v1.json
+```
+
+É possível definir IoU diferente por classe:
+
+```bash
+python tools/evaluate_reviewed_annotations.py \
+  --api-url https://servidor/hemacias/web \
+  --api-key SUA_CHAVE \
+  --model-id 1 \
+  --iou 0.50 \
+  --class-iou hemacia=0.50 \
+  --class-iou leucocito=0.55 \
+  --class-iou plaqueta=0.40
+```
+
+O avaliador:
+
+1. busca somente imagens ligadas ao modelo e com ground truth manual aprovado;
+2. separa objetos por classe;
+3. calcula IoU poligonal real;
+4. faz matching guloso do maior IoU para o menor dentro da mesma classe;
+5. calcula TP, FP, FN, precision, recall e F1;
+6. calcula MAE, viés e MAPE de contagem por imagem/classe;
+7. publica métricas gerais e por classe em `ai_model_metrics`;
+8. registra a rodada completa em `ai_model_validation_runs`.
+
+Use `--no-publish` para executar somente a análise local sem alterar o registro do modelo.
+
+Para banco existente, execute também:
+
+```sql
+web/migrations/009_model_validation_runs.sql
+```
+
+As métricas publicadas por essa ferramenta representam **validação contra ground truth humano revisado**, e não as métricas internas do conjunto de validação usadas durante o treinamento.

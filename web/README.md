@@ -432,3 +432,25 @@ Retorna a visão consolidada de uma amostra para clientes desktop e integraçõe
 ### annotations_save
 
 Endpoint autenticado por `X-API-Key` destinado a clientes desktop. Recebe `image_id` e a lista completa de anotações revisadas, valida classe e geometria e grava o resultado como ground truth manual aprovado. A imagem é marcada como `REVISADA` no gerenciador de dataset. A operação preserva a contagem automática original e registra a correção humana separadamente.
+
+
+## Validação de modelos com ground truth
+
+A API possui os endpoints:
+
+```text
+validation_data
+validation_run_register
+```
+
+`validation_data` retorna apenas imagens vinculadas ao `model_id` que possuam revisão humana aprovada no dataset, preservando separadamente as predições automáticas e o ground truth.
+
+`validation_run_register` grava o histórico da execução em `ai_model_validation_runs`.
+
+Para bancos existentes:
+
+```sql
+web/migrations/009_model_validation_runs.sql
+```
+
+As métricas publicadas por `tools/evaluate_reviewed_annotations.py` recebem observação indicando que são provenientes de validação contra ground truth revisado.

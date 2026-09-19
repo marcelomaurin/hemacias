@@ -100,6 +100,7 @@ foreach(db()->query(
 <title>Modelos de IA - Hemácias</title><link rel="stylesheet" href="assets/style.css"></head><body>
 <header><strong>Hemácias · Modelos de IA</strong><nav><a href="index.php">Dashboard</a><a href="resources.php">Recursos</a><a href="models.php">Modelos</a><a href="dataset.php">Dataset</a><a href="index.php?page=logout">Sair</a></nav></header>
 <main class="container"><h1>Gestão de modelos de IA</h1>
+<p><a class="button" href="compare_models.php">Comparar versões</a></p>
 <?php if($error):?><div class="error"><?=h($error)?></div><?php endif;?>
 
 <section class="card"><h2>Novo modelo</h2>

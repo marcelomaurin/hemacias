@@ -71,6 +71,20 @@ Ajustar a faixa de tamanho esperada:
 python teste04.py --min-radius 15 --max-radius 35
 ```
 
+Usar o novo método de segmentação:
+
+```bash
+python teste04.py --method watershed --min-radius 15 --max-radius 35
+```
+
+Comparar com o método anterior:
+
+```bash
+python teste04.py --method hough
+```
+
+O `watershed` é agora o método padrão porque permite separar melhor objetos celulares adjacentes. Ele continua sendo experimental e precisa ser calibrado com imagens reais.
+
 Durante a execução:
 
 - `Q`: encerra.
@@ -143,11 +157,29 @@ O repositório já possui imagens de treino/teste e anotações LabelMe com a cl
 
 A separação de treino, validação e teste deve ser feita por campo/imagem de origem para evitar vazamento de dados.
 
+## Avaliação contra contagem manual
+
+Foi adicionada a ferramenta `tools/evaluate_counts.py`. Prepare um CSV:
+
+```csv
+image,manual_count
+campo01.jpg,47
+campo02.jpg,51
+```
+
+Execute:
+
+```bash
+python tools/evaluate_counts.py referencia.csv --method watershed
+```
+
+Ela calcula MAE, erro percentual médio (quando aplicável), viés médio e grava resultados detalhados em CSV.
+
 ## Próximos passos recomendados
 
 - calibração por câmera/microscópio;
-- implementação de watershed para células sobrepostas;
-- ferramenta de avaliação contra contagem manual;
+- ajuste/validação do watershed em campos reais;
+- conversão das anotações LabelMe para dataset de segmentação;
 - conversão das anotações LabelMe para formato de treinamento;
 - métricas MAE, erro percentual, precisão, recall e F1;
 - interface gráfica e exportação de resultados.

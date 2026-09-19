@@ -421,6 +421,7 @@ ALTER TABLE count_protocols
 ALTER TABLE counts ADD COLUMN model_id BIGINT UNSIGNED NULL AFTER algorithm_version;
 ALTER TABLE counts ADD COLUMN model_version_snapshot VARCHAR(80) NULL AFTER model_id;
 ALTER TABLE counts ADD COLUMN model_sha256_snapshot CHAR(64) NULL AFTER model_version_snapshot;
+ALTER TABLE counts ADD COLUMN model_path_snapshot VARCHAR(500) NULL AFTER model_sha256_snapshot;
 ALTER TABLE counts
     ADD CONSTRAINT fk_counts_model FOREIGN KEY(model_id) REFERENCES ai_models(id) ON DELETE SET NULL;
 

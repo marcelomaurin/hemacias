@@ -74,19 +74,52 @@ try {
         $pdo->beginTransaction();
 
         $st = $pdo->prepare(
-            'INSERT INTO counts(sample_id,method,algorithm_version,scale_label,magnification,pixel_size_um,
-             focus_score,image_quality,total_cells,notes,source)
-             VALUES(?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
+            'SELECT COALESCE(MAX(field_no),0)+1
+             FROM microscopic_fields
+             WHERE sample_id=? FOR UPDATE'
+        );
+        $st->execute([$sampleId]);
+        $fieldNo = (int)$st->fetchColumn();
+
+        $quality = strtoupper((string)($d['image_quality'] ?? 'REVISAR'));
+        $fieldStatus = in_array($quality, ['ACEITA','REJEITADA','REVISAR'], true)
+            ? $quality
+            : 'REVISAR';
+        $included = $fieldStatus === 'REJEITADA' ? 0 : 1;
+
+        $st = $pdo->prepare(
+            'INSERT INTO microscopic_fields(
+                sample_id,field_no,status,quality_score,focus_score,
+                quality_reason,included_in_summary
+             ) VALUES(?,?,?,?,?,?,?)'
         );
         $st->execute([
             $sampleId,
+            $fieldNo,
+            $fieldStatus,
+            $d['quality_score'] ?? null,
+            $d['focus_score'] ?? null,
+            $d['quality_reason'] ?? null,
+            $included,
+        ]);
+        $fieldId = (int)$pdo->lastInsertId();
+
+        $st = $pdo->prepare(
+            'INSERT INTO counts(
+                sample_id,field_id,method,algorithm_version,scale_label,magnification,pixel_size_um,
+                focus_score,image_quality,total_cells,notes,source
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
+        );
+        $st->execute([
+            $sampleId,
+            $fieldId,
             $d['method'] ?? 'opencv-hough',
             $d['algorithm_version'] ?? null,
             $d['scale_label'] ?? null,
             $d['magnification'] ?? null,
             $d['pixel_size_um'] ?? null,
             $d['focus_score'] ?? null,
-            $d['image_quality'] ?? null,
+            $fieldStatus,
             $d['total_cells'] ?? null,
             $d['notes'] ?? null,
         ]);
@@ -94,8 +127,9 @@ try {
 
         $components = is_array($d['components'] ?? null) ? $d['components'] : [];
         $stComp = $pdo->prepare(
-            'INSERT INTO count_components(count_id,component_code,component_name,quantity,unit,confidence,metadata_json)
-             VALUES(?,?,?,?,?,?,?)'
+            'INSERT INTO count_components(
+                count_id,component_code,component_name,quantity,unit,confidence,metadata_json
+             ) VALUES(?,?,?,?,?,?,?)'
         );
         foreach ($components as $component) {
             $stComp->execute([
@@ -105,7 +139,9 @@ try {
                 max(0, (int)($component['quantity'] ?? 0)),
                 (string)($component['unit'] ?? 'células/campo'),
                 isset($component['confidence']) ? (float)$component['confidence'] : null,
-                isset($component['metadata']) ? json_encode($component['metadata'], JSON_UNESCAPED_UNICODE) : null,
+                isset($component['metadata'])
+                    ? json_encode($component['metadata'], JSON_UNESCAPED_UNICODE)
+                    : null,
             ]);
         }
 
@@ -119,7 +155,9 @@ try {
             $finfo = new finfo(FILEINFO_MIME_TYPE);
             $mime = $finfo->file($file['tmp_name']);
             $allowed = ['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
-            if (!isset($allowed[$mime])) throw new RuntimeException('Formato de imagem não permitido.');
+            if (!isset($allowed[$mime])) {
+                throw new RuntimeException('Formato de imagem não permitido.');
+            }
 
             $dir = rtrim((string)$config['app']['upload_dir'], '/\\') . '/' . date('Y/m');
             if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
@@ -137,20 +175,37 @@ try {
             $sha = hash_file('sha256', $dest);
 
             $stImg = $pdo->prepare(
-                'INSERT INTO sample_images(sample_id,field_id,count_id,original_name,stored_name,mime_type,file_size,sha256,
-                 width_px,height_px,scale_label,magnification)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+                'INSERT INTO sample_images(
+                    sample_id,field_id,count_id,original_name,stored_name,mime_type,file_size,sha256,
+                    width_px,height_px,scale_label,magnification
+                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $stImg->execute([
-                $sampleId, $fieldId, $countId, basename((string)$file['name']), $relative, $mime,
-                (int)$file['size'], $sha, $width, $height,
-                $d['scale_label'] ?? null, $d['magnification'] ?? null
+                $sampleId,
+                $fieldId,
+                $countId,
+                basename((string)$file['name']),
+                $relative,
+                $mime,
+                (int)$file['size'],
+                $sha,
+                $width,
+                $height,
+                $d['scale_label'] ?? null,
+                $d['magnification'] ?? null,
             ]);
             $imageId = (int)$pdo->lastInsertId();
         }
 
         $pdo->commit();
-        json_response(['ok'=>true,'count_id'=>$countId,'image_id'=>$imageId,'field_id'=>$fieldId,'field_no'=>$fieldNo]);
+        json_response([
+            'ok'=>true,
+            'count_id'=>$countId,
+            'image_id'=>$imageId,
+            'field_id'=>$fieldId,
+            'field_no'=>$fieldNo,
+            'field_status'=>$fieldStatus,
+        ]);
     }
 
     if ($action === 'patient_search') {

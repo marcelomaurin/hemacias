@@ -25,3 +25,21 @@ def test_empty_frame_rejected():
     except ValueError:
         return
     raise AssertionError("Frame vazio deveria gerar ValueError.")
+
+
+
+def test_watershed_empty_frame_rejected():
+    from hemacias.watershed import WatershedCounter
+    counter = WatershedCounter()
+    try:
+        counter.detect(np.array([], dtype=np.uint8))
+    except ValueError:
+        return
+    raise AssertionError("Frame vazio deveria gerar ValueError.")
+
+
+def test_watershed_config_adjusts_even_kernel():
+    from hemacias.watershed import WatershedConfig
+    config = WatershedConfig(morph_kernel=4)
+    config.validate()
+    assert config.morph_kernel == 5

@@ -347,11 +347,16 @@ try {
             $modelSha=$modelRow['sha256'] ?: $modelSha;
         }
 
+        $sourceClient=strtoupper(trim((string)($d['source_client']??'PYTHON')));
+        if(!in_array($sourceClient,['PYTHON','LAZARUS'],true)){
+            $sourceClient='PYTHON';
+        }
+
         $st = $pdo->prepare(
             'INSERT INTO counts(
                 sample_id,field_id,method,algorithm_version,model_id,model_version_snapshot,model_sha256_snapshot,model_path_snapshot,
                 scale_label,magnification,pixel_size_um,focus_score,image_quality,total_cells,notes,source
-             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,\'PYTHON\')'
+             ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
         $st->execute([
             $sampleId,
@@ -366,6 +371,7 @@ try {
             $fieldStatus,
             $d['total_cells'] ?? null,
             $d['notes'] ?? null,
+            $sourceClient,
         ]);
         $countId = (int)$pdo->lastInsertId();
 

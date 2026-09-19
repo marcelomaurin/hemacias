@@ -167,8 +167,8 @@ def main() -> int:
             output = counter.draw(frame, result)
             cv2.putText(
                 output,
-                "(C) limpar  (Q) sair",
-                (max(10, output.shape[1] - 220), 30),
+                "(C) limpar  (S) salvar  (Q) sair",
+                (max(10, output.shape[1] - 300), 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 (0, 255, 0),
@@ -192,9 +192,39 @@ def main() -> int:
                     if not cv2.imwrite(str(temp_path), frame):
                         raise RuntimeError("Falha ao criar imagem temporária.")
 
-                    result_api = api.create_count(
-                        sample_id=sample_id,
-                        components=[
+                    if args.method == "yolo":
+                        grouped = result.cells_by_class()
+                        components = []
+                        display_names = {
+                            "hemacia": "Hemácia",
+                            "leucocito": "Leucócito",
+                            "plaqueta": "Plaqueta",
+                            "artefato": "Artefato",
+                        }
+                        for class_name, cells in sorted(grouped.items()):
+                            confidences = [cell.confidence for cell in cells]
+                            components.append(
+                                {
+                                    "code": class_name.casefold(),
+                                    "name": display_names.get(class_name.casefold(), class_name),
+                                    "quantity": len(cells),
+                                    "unit": "objetos/campo",
+                                    "confidence": (
+                                        sum(confidences) / len(confidences)
+                                        if confidences else None
+                                    ),
+                                    "metadata": {
+                                        "detections": [cell.as_dict() for cell in cells],
+                                        "stable_count_displayed": result.stable_counts_by_class.get(
+                                            class_name, len(cells)
+                                        ),
+                                        "method": args.method,
+                                        "model": args.model,
+                                    },
+                                }
+                            )
+                    else:
+                        components = [
                             {
                                 "code": "hemacia",
                                 "name": "Hemácia",
@@ -211,17 +241,20 @@ def main() -> int:
                                     ),
                                     "stable_count_displayed": result.stable_count,
                                     "method": args.method,
-                                    "model": args.model if args.method == "yolo" else None,
                                 },
                             }
-                        ],
+                        ]
+
+                    result_api = api.create_count(
+                        sample_id=sample_id,
+                        components=components,
                         image_path=temp_path,
                         method=(
                             "opencv-hough"
                             if args.method == "hough"
                             else ("opencv-watershed" if args.method == "watershed" else "yolo-seg")
                         ),
-                        algorithm_version="1.3",
+                        algorithm_version="1.4",
                         scale_label=args.scale_label,
                         magnification=args.magnification,
                         pixel_size_um=args.pixel_size_um,

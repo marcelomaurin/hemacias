@@ -51,7 +51,9 @@ def main() -> int:
         description="Compara contagem automática com referência manual."
     )
     parser.add_argument("csv", type=Path, help="CSV com image,manual_count")
-    parser.add_argument("--method", choices=("hough", "watershed"), default="watershed")
+    parser.add_argument("--method", choices=("hough", "watershed", "yolo"), default="watershed")
+    parser.add_argument("--model", type=Path, help="Modelo .pt para --method yolo")
+    parser.add_argument("--confidence", type=float, default=0.25)
     parser.add_argument("--min-radius", type=int, default=15)
     parser.add_argument("--max-radius", type=int, default=35)
     parser.add_argument("--focus", type=float, default=0.0)
@@ -67,7 +69,7 @@ def main() -> int:
                 history_size=1,
             )
         )
-    else:
+    elif args.method == "watershed":
         detector = WatershedCounter(
             WatershedConfig(
                 min_radius=args.min_radius,
@@ -75,6 +77,16 @@ def main() -> int:
                 min_focus_score=args.focus,
                 history_size=1,
             )
+        )
+    else:
+        if args.model is None:
+            raise SystemExit("--model é obrigatório com --method yolo.")
+        from hemacias.yolo_counter import YoloSegCounter
+        detector = YoloSegCounter(
+            args.model,
+            confidence=args.confidence,
+            min_focus_score=args.focus,
+            history_size=1,
         )
 
     results: list[RowResult] = []

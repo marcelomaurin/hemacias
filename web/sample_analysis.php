@@ -100,12 +100,13 @@ foreach($fields as $f){
 <?php
 $minFields=(int)($sample['min_fields']??0);
 $minValid=(int)($sample['min_valid_fields']??0);
-$protocolReady=($minValid===0 || $accepted >= $minValid);
+$protocolReady=($minValid===0 || $accepted >= $minValid)
+    && ($minFields===0 || count($fields) >= $minFields);
 ?>
 <div class="<?=$protocolReady?'ok':'error'?>">
 Campos válidos: <?=$accepted?> / mínimo exigido: <?=$minValid?:'não definido'?>.
 Campos totais: <?=count($fields)?> / alvo do protocolo: <?=$minFields?:'não definido'?>.
-<?=$protocolReady?'Critério mínimo de campos válidos atendido.':'A análise ainda não atingiu o mínimo de campos válidos do protocolo.'?>
+<?=$protocolReady?'Critérios mínimos de campos totais e válidos atendidos.':'A análise ainda não atingiu os critérios mínimos de campos totais e válidos do protocolo.'?>
 </div>
 
 <div class="grid">

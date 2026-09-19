@@ -102,6 +102,11 @@ if($action==='import_auto'){
             $imageId,(int)$user['id'],'IMPORT_AUTO',
             json_encode(['count'=>count($auto)],JSON_UNESCAPED_UNICODE)
         ]);
+        $pdo->prepare(
+            "INSERT INTO dataset_items(image_id,review_state,reviewed_by,reviewed_at)
+             VALUES(?, 'PENDENTE', ?, NOW())
+             ON DUPLICATE KEY UPDATE review_state='PENDENTE',reviewed_by=VALUES(reviewed_by),reviewed_at=VALUES(reviewed_at)"
+        )->execute([$imageId,(int)$user['id']]);
         $pdo->commit();
         audit('ANNOTATION_IMPORT_AUTO','sample_image',$imageId,['count'=>count($auto)]);
         ann_json(['ok'=>true,'imported'=>count($auto)]);
@@ -166,6 +171,11 @@ if($action==='save_all'){
             $imageId,(int)$user['id'],'SAVE_ALL',
             json_encode(['count'=>count($clean)],JSON_UNESCAPED_UNICODE)
         ]);
+        $pdo->prepare(
+            "INSERT INTO dataset_items(image_id,review_state,reviewed_by,reviewed_at)
+             VALUES(?, 'REVISADA', ?, NOW())
+             ON DUPLICATE KEY UPDATE review_state='REVISADA',reviewed_by=VALUES(reviewed_by),reviewed_at=VALUES(reviewed_at)"
+        )->execute([$imageId,(int)$user['id']]);
         $pdo->commit();
         audit('ANNOTATION_SAVE','sample_image',$imageId,['count'=>count($clean)]);
         ann_json(['ok'=>true,'saved'=>count($clean)]);

@@ -137,12 +137,12 @@ try {
             $sha = hash_file('sha256', $dest);
 
             $stImg = $pdo->prepare(
-                'INSERT INTO sample_images(sample_id,count_id,original_name,stored_name,mime_type,file_size,sha256,
+                'INSERT INTO sample_images(sample_id,field_id,count_id,original_name,stored_name,mime_type,file_size,sha256,
                  width_px,height_px,scale_label,magnification)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?)'
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $stImg->execute([
-                $sampleId, $countId, basename((string)$file['name']), $relative, $mime,
+                $sampleId, $fieldId, $countId, basename((string)$file['name']), $relative, $mime,
                 (int)$file['size'], $sha, $width, $height,
                 $d['scale_label'] ?? null, $d['magnification'] ?? null
             ]);
@@ -150,7 +150,7 @@ try {
         }
 
         $pdo->commit();
-        json_response(['ok'=>true,'count_id'=>$countId,'image_id'=>$imageId]);
+        json_response(['ok'=>true,'count_id'=>$countId,'image_id'=>$imageId,'field_id'=>$fieldId,'field_no'=>$fieldNo]);
     }
 
     if ($action === 'patient_search') {

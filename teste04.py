@@ -11,6 +11,7 @@ from hemacias.counter import CellCounter, CounterConfig
 from hemacias.watershed import WatershedCounter, WatershedConfig
 from hemacias.yolo_counter import YoloSegCounter
 from hemacias.api_client import HemaciasApiClient
+from hemacias.quality import evaluate_image_quality
 
 
 def parse_args():
@@ -59,6 +60,8 @@ def parse_args():
     parser.add_argument("--scale-label", default="40x", help="Escala/objetiva registrada")
     parser.add_argument("--magnification", type=float, default=40.0, help="Magnificação")
     parser.add_argument("--pixel-size-um", type=float, default=None, help="Tamanho de pixel calibrado em µm")
+    parser.add_argument("--allow-low-quality-save", action="store_true",
+                        help="Permite salvar campo rejeitado pelo controle de qualidade.")
     return parser.parse_args()
 
 
@@ -164,7 +167,21 @@ def main() -> int:
                 break
 
             result = counter.detect(frame)
+            quality = evaluate_image_quality(
+                frame,
+                focus_score=result.focus_score,
+                min_focus=args.focus,
+            )
             output = counter.draw(frame, result)
+            cv2.putText(
+                output,
+                f"Qualidade: {quality.status} ({quality.score:.0f})",
+                (10, 55),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 0) if quality.status == "ACEITA" else ((0, 215, 255) if quality.status == "REVISAR" else (0, 0, 255)),
+                2,
+            )
             cv2.putText(
                 output,
                 "(C) limpar  (S) salvar  (Q) sair",
@@ -182,6 +199,13 @@ def main() -> int:
             if key == ord("c"):
                 counter.reset()
             if key == ord("s"):
+                if quality.status == "REJEITADA" and not args.allow_low_quality_save:
+                    print(
+                        "Campo bloqueado pelo controle de qualidade: "
+                        + (", ".join(quality.reasons) or "qualidade insuficiente")
+                        + ". Use --allow-low-quality-save para exceção explícita."
+                    )
+                    continue
                 if api is None or sample_id is None:
                     print("API não configurada. Use --api-url e --api-key para registrar resultados.")
                     continue
@@ -259,7 +283,10 @@ def main() -> int:
                         magnification=args.magnification,
                         pixel_size_um=args.pixel_size_um,
                         focus_score=result.focus_score,
-                        image_quality=result.image_quality,
+                        image_quality=quality.status,
+                        quality_score=quality.score,
+                        quality_reason="; ".join(quality.reasons) if quality.reasons else None,
+                        quality_metrics=quality.as_dict(),
                         total_cells=result.instant_count,
                     )
                     print(

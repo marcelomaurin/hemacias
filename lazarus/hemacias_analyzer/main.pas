@@ -95,6 +95,7 @@ type
     FQualityScore: Double;
     FFocusScore: Double;
     FQualityReason: string;
+    FShowingSampleSummary: Boolean;
 
     procedure BuildUI;
     procedure InitializeAI;
@@ -211,6 +212,7 @@ begin
   FQualityScore := 0;
   FFocusScore := 0;
   FQualityReason := '';
+  FShowingSampleSummary := False;
   BuildUI;
   InitializeAI;
 end;
@@ -262,7 +264,7 @@ begin
   FBtnSummary := TButton.Create(Self);
   FBtnSummary.Parent := FTop;
   FBtnSummary.SetBounds(465, 10, 105, 32);
-  FBtnSummary.Caption := 'Consolidado';
+  FBtnSummary.Caption := 'Relatório amostra';
   FBtnSummary.OnClick := @SummaryClick;
   FBtnSummary.Enabled := False;
 
@@ -683,6 +685,7 @@ end;
 procedure TfrmMain.LoadImageClick(Sender: TObject);
 begin
   if not FOpenImage.Execute then Exit;
+  FShowingSampleSummary := False;
   FCurrentImage := FOpenImage.FileName;
   FEdImage.Text := FCurrentImage;
   FImage.Picture.LoadFromFile(FCurrentImage);
@@ -1080,6 +1083,7 @@ begin
   FYolo.ImageSize := ImageSizeValue;
   FYolo.Device := Trim(FEdDevice.Text);
 
+  FShowingSampleSummary := False;
   Screen.Cursor := crHourGlass;
   FBtnAnalyze.Enabled := False;
   SetStatus('Executando análise YOLO...');
@@ -1326,6 +1330,7 @@ begin
     S.Add('Relatório experimental. Requer validação laboratorial.');
     FMemo.Lines.Assign(S);
     FLastDeterministicReport := S.Text;
+    FShowingSampleSummary := True;
     FBtnExport.Enabled := True;
     FBtnAIReport.Enabled := FChatConfigured;
   finally
@@ -1424,10 +1429,23 @@ begin
   begin
     ShowMessage('Execute uma análise antes de emitir o resultado.'); Exit;
   end;
-  FSaveReport.FileName := 'resultado_lamina_' + FormatDateTime('yyyymmdd_hhnnss', Now) + '.json';
+  if FShowingSampleSummary then
+  begin
+    FSaveReport.FileName := 'relatorio_amostra_' +
+      FormatDateTime('yyyymmdd_hhnnss', Now) + '.txt';
+    FSaveReport.FilterIndex := 3;
+  end
+  else
+  begin
+    FSaveReport.FileName := 'resultado_lamina_' +
+      FormatDateTime('yyyymmdd_hhnnss', Now) + '.json';
+    FSaveReport.FilterIndex := 1;
+  end;
   if not FSaveReport.Execute then Exit;
   Ext := LowerCase(ExtractFileExt(FSaveReport.FileName));
-  if Ext = '.csv' then ExportCSV(FSaveReport.FileName)
+  if FShowingSampleSummary then
+    ExportText(FSaveReport.FileName)
+  else if Ext = '.csv' then ExportCSV(FSaveReport.FileName)
   else if Ext = '.txt' then ExportText(FSaveReport.FileName)
   else ExportJSON(FSaveReport.FileName);
   SetStatus('Resultado salvo: ' + FSaveReport.FileName);
@@ -1471,6 +1489,7 @@ begin
   FImage.Picture.Clear;
   FMemo.Clear;
   FLastDeterministicReport := '';
+  FShowingSampleSummary := False;
   UpdateGrid;
   FBtnExport.Enabled := False;
   FBtnAIReport.Enabled := False;

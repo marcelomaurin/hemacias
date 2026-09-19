@@ -34,7 +34,24 @@ def main() -> int:
     parser.add_argument("--project", default="runs/hemacias")
     parser.add_argument("--reference-csv", type=Path, help="CSV de referência para MAE/viés/MAPE.")
     parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument(
+        "--allow-untracked-dataset",
+        action="store_true",
+        help="Permite treinar sem manifest/split por paciente. Não recomendado para validação.",
+    )
     args = parser.parse_args()
+
+    readiness_report = ROOT / "runs" / "dataset_readiness" / f"{args.version}.json"
+    readiness_cmd = [
+        sys.executable,
+        "tools/check_yolo_dataset.py",
+        str(args.data),
+        "--json-output",
+        str(readiness_report),
+    ]
+    if not args.allow_untracked_dataset:
+        readiness_cmd.append("--strict")
+    run(readiness_cmd)
 
     run_name = f"blood-seg-{args.version}"
     train_cmd = [
@@ -97,6 +114,7 @@ def main() -> int:
     print("Pipeline concluído.")
     print(f"Versão: {args.version}")
     print(f"Dataset: {args.dataset_ref}")
+    print(f"Relatório de prontidão: {readiness_report}")
     print(f"Pesos: {best_path}")
     print("Status inicial no cadastro: VALIDACAO")
     print("A aprovação do modelo deve ser feita após revisar as métricas e os resultados.")

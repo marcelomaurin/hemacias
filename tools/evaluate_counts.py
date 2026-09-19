@@ -15,6 +15,7 @@ import cv2
 
 from hemacias.counter import CellCounter, CounterConfig
 from hemacias.watershed import WatershedCounter, WatershedConfig
+from hemacias.api_client import HemaciasApiClient
 
 
 @dataclass(slots=True)
@@ -63,6 +64,9 @@ def main() -> int:
     parser.add_argument("--max-radius", type=int, default=35)
     parser.add_argument("--focus", type=float, default=0.0)
     parser.add_argument("--output", type=Path, default=Path("evaluation_results.csv"))
+    parser.add_argument("--api-url", help="URL da pasta web para publicar métricas.")
+    parser.add_argument("--api-key", help="Chave da API.")
+    parser.add_argument("--model-id", type=int, help="ID do modelo cadastrado para receber as métricas.")
     args = parser.parse_args()
 
     if args.method == "hough":
@@ -168,6 +172,35 @@ def main() -> int:
             f"viés={class_bias:.3f} "
             + ("MAPE=n/a" if class_mape is None else f"MAPE={class_mape:.3f}%")
         )
+    if args.api_url or args.api_key or args.model_id:
+        if not (args.api_url and args.api_key and args.model_id):
+            raise SystemExit("--api-url, --api-key e --model-id devem ser usados juntos.")
+        api = HemaciasApiClient(args.api_url, args.api_key)
+        api.upsert_model_metric(
+            model_id=args.model_id,
+            mae=mae,
+            bias=bias,
+            mape=mape,
+            sample_count=len(results),
+            notes=f"Avaliação de contagem: {args.csv.name}",
+        )
+        for class_name in classes:
+            subset = [r for r in results if r.class_name == class_name]
+            class_mae = mean(r.absolute_error for r in subset)
+            class_bias = mean(r.automatic - r.manual for r in subset)
+            pct = [r.percentage_error for r in subset if r.percentage_error is not None]
+            class_mape = mean(pct) if pct else None
+            api.upsert_model_metric(
+                model_id=args.model_id,
+                component_code=class_name,
+                mae=class_mae,
+                bias=class_bias,
+                mape=class_mape,
+                sample_count=len(subset),
+                notes=f"Avaliação de contagem: {args.csv.name}",
+            )
+        print(f"Métricas publicadas no modelo #{args.model_id}.")
+
     print(f"Detalhes: {args.output}")
     return 0
 

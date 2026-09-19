@@ -206,6 +206,102 @@ try {
         json_response(['ok'=>true,'models'=>array_values($models)]);
     }
 
+    if ($action === 'annotations_save') {
+        $d=json_input();
+        $imageId=(int)($d['image_id']??0);
+        $items=is_array($d['annotations']??null)?$d['annotations']:[];
+        if($imageId<1) json_response(['ok'=>false,'error'=>'image_id obrigatório'],422);
+        if(count($items)>5000) json_response(['ok'=>false,'error'=>'Limite de 5000 anotações por imagem excedido'],422);
+
+        $st=db()->prepare('SELECT id,width_px,height_px FROM sample_images WHERE id=?');
+        $st->execute([$imageId]);
+        $image=$st->fetch();
+        if(!$image) json_response(['ok'=>false,'error'=>'Imagem não encontrada'],404);
+
+        $normalize=function(string $value): string {
+            $v=strtolower(trim($value));
+            $v=strtr($v,[
+                'á'=>'a','à'=>'a','ã'=>'a','â'=>'a','ä'=>'a',
+                'é'=>'e','è'=>'e','ê'=>'e','ë'=>'e',
+                'í'=>'i','ì'=>'i','î'=>'i','ï'=>'i',
+                'ó'=>'o','ò'=>'o','õ'=>'o','ô'=>'o','ö'=>'o',
+                'ú'=>'u','ù'=>'u','û'=>'u','ü'=>'u','ç'=>'c'
+            ]);
+            $aliases=[
+                'rbc'=>'hemacia','red blood cell'=>'hemacia','red_blood_cell'=>'hemacia',
+                'wbc'=>'leucocito','white blood cell'=>'leucocito','white_blood_cell'=>'leucocito',
+                'platelet'=>'plaqueta','artifact'=>'artefato'
+            ];
+            return $aliases[$v]??$v;
+        };
+
+        $width=max(1,(int)$image['width_px']);
+        $height=max(1,(int)$image['height_px']);
+        $clean=[];
+        $stType=db()->prepare(
+            'SELECT id,code,name FROM count_item_types WHERE code=? AND active=1 AND annotation_enabled=1'
+        );
+        foreach($items as $idx=>$item){
+            $code=$normalize((string)($item['class_code']??''));
+            $stType->execute([$code]);
+            $type=$stType->fetch();
+            if(!$type) json_response(['ok'=>false,'error'=>"Classe inválida na anotação {$idx}"],422);
+            $polygon=$item['polygon']??null;
+            if(!is_array($polygon)||count($polygon)<3||count($polygon)>2000){
+                json_response(['ok'=>false,'error'=>"Polígono inválido na anotação {$idx}"],422);
+            }
+            $points=[];
+            foreach($polygon as $p){
+                if(!is_array($p)||count($p)<2) json_response(['ok'=>false,'error'=>"Ponto inválido na anotação {$idx}"],422);
+                $x=(float)$p[0];$y=(float)$p[1];
+                if(!is_finite($x)||!is_finite($y)||$x<0||$x>$width||$y<0||$y>$height){
+                    json_response(['ok'=>false,'error'=>"Ponto fora da imagem na anotação {$idx}"],422);
+                }
+                $points[]=[$x,$y];
+            }
+            $clean[]=[
+                'item_type_id'=>(int)$type['id'],
+                'class_code'=>(string)$type['code'],
+                'class_name'=>(string)$type['name'],
+                'polygon'=>$points,
+                'notes'=>trim((string)($item['notes']??''))?:'Revisão realizada no cliente Lazarus'
+            ];
+        }
+
+        $pdo=db();
+        $pdo->beginTransaction();
+        try{
+            $pdo->prepare('DELETE FROM image_annotations WHERE image_id=?')->execute([$imageId]);
+            $ins=$pdo->prepare(
+                "INSERT INTO image_annotations(image_id,item_type_id,class_code,class_name,polygon_json,source,review_status,notes)
+                 VALUES(?,?,?,?,?,'MANUAL','APROVADA',?)"
+            );
+            foreach($clean as $item){
+                $ins->execute([
+                    $imageId,$item['item_type_id'],$item['class_code'],$item['class_name'],
+                    json_encode($item['polygon'],JSON_UNESCAPED_UNICODE),$item['notes']
+                ]);
+            }
+            $pdo->prepare(
+                "INSERT INTO dataset_items(image_id,review_state,reviewed_at)
+                 VALUES(?,'REVISADA',NOW())
+                 ON DUPLICATE KEY UPDATE review_state='REVISADA',reviewed_at=NOW()"
+            )->execute([$imageId]);
+            $pdo->prepare(
+                "INSERT INTO annotation_revisions(image_id,user_id,action_type,details_json)
+                 VALUES(?,NULL,'SAVE_LAZARUS',?)"
+            )->execute([
+                $imageId,json_encode(['count'=>count($clean),'source'=>'LAZARUS'],JSON_UNESCAPED_UNICODE)
+            ]);
+            $pdo->commit();
+        }catch(Throwable $e){
+            if($pdo->inTransaction())$pdo->rollBack();
+            throw $e;
+        }
+
+        json_response(['ok'=>true,'saved'=>count($clean),'image_id'=>$imageId,'review_state'=>'REVISADA']);
+    }
+
     if ($action === 'sample_summary') {
         $d=json_input();
         $sampleId=(int)($d['sample_id']??$_GET['sample_id']??0);

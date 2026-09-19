@@ -126,13 +126,33 @@ def main() -> int:
         )
 
         metrics = getattr(results, "results_dict", {}) or {}
+
+        def metric_value(*keys: str):
+            for key in keys:
+                if key in metrics:
+                    try:
+                        return float(metrics[key])
+                    except (TypeError, ValueError):
+                        return None
+            return None
+
+        precision = metric_value("metrics/precision(M)", "metrics/precision(B)")
+        recall = metric_value("metrics/recall(M)", "metrics/recall(B)")
+        map50 = metric_value("metrics/mAP50(M)", "metrics/mAP50(B)")
+        map5095 = metric_value("metrics/mAP50-95(M)", "metrics/mAP50-95(B)")
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if precision is not None and recall is not None and (precision + recall) > 0
+            else None
+        )
         api.upsert_model_metric(
             model_id=model_id,
-            precision=float(metrics.get("metrics/precision(B)", 0.0)) if "metrics/precision(B)" in metrics else None,
-            recall=float(metrics.get("metrics/recall(B)", 0.0)) if "metrics/recall(B)" in metrics else None,
-            map50=float(metrics.get("metrics/mAP50(B)", 0.0)) if "metrics/mAP50(B)" in metrics else None,
-            map5095=float(metrics.get("metrics/mAP50-95(B)", 0.0)) if "metrics/mAP50-95(B)" in metrics else None,
-            notes="Métricas globais retornadas pelo treinamento Ultralytics.",
+            precision=precision,
+            recall=recall,
+            f1=f1,
+            map50=map50,
+            map5095=map5095,
+            notes="Métricas globais retornadas pelo treinamento Ultralytics (máscara quando disponível).",
         )
         print(f"Modelo registrado para validação: #{model_id} · {args.registry_code} {args.registry_version}")
 

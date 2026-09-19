@@ -89,7 +89,7 @@ foreach(db()->query('SELECT cpi.*,cit.code,cit.name FROM count_protocol_items cp
 }
 ?><!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Recursos de contagem - Hemácias</title><link rel="stylesheet" href="assets/style.css"></head><body>
-<header><strong>Hemácias · Recursos</strong><nav><a href="index.php">Dashboard</a><a href="resources.php">Recursos</a><a href="dataset.php">Dataset</a><a href="index.php?page=logout">Sair</a></nav></header>
+<header><strong>Hemácias · Recursos</strong><nav><a href="index.php">Dashboard</a><a href="resources.php">Recursos</a><a href="models.php">Modelos IA</a><a href="dataset.php">Dataset</a><a href="index.php?page=logout">Sair</a></nav></header>
 <main class="container"><h1>Gestão dos recursos de contagem</h1>
 <?php if($error):?><div class="error"><?=h($error)?></div><?php endif;?>
 

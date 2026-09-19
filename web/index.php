@@ -50,6 +50,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
 
     try {
+        if (($user['role'] ?? '') === 'LEITURA') {
+            throw new RuntimeException('Este perfil possui somente permissão de leitura.');
+        }
         if ($action === 'patient_create') {
             $name = trim((string)$_POST['name']);
             if ($name === '') throw new RuntimeException('Nome obrigatório.');

@@ -183,6 +183,7 @@ def main() -> int:
             mape=mape,
             sample_count=len(results),
             notes=f"Avaliação de contagem: {args.csv.name}",
+            metric_origin="COUNT_REFERENCE",
         )
         for class_name in classes:
             subset = [r for r in results if r.class_name == class_name]
@@ -198,6 +199,7 @@ def main() -> int:
                 mape=class_mape,
                 sample_count=len(subset),
                 notes=f"Avaliação de contagem: {args.csv.name}",
+                metric_origin="COUNT_REFERENCE",
             )
         print(f"Métricas publicadas no modelo #{args.model_id}.")
 

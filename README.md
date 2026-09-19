@@ -366,3 +366,20 @@ Para reconstruir um dataset LabelMe local sem resíduos de uma conversão anteri
 ```bash
 python tools/labelme_to_yolo_seg.py --clean
 ```
+
+
+## Aplicação Lazarus para análise de lâminas
+
+Foi adicionada uma aplicação desktop em:
+
+```text
+lazarus/hemacias_analyzer/
+```
+
+Ela usa a biblioteca `marcelomaurin/CHATGPT` por meio de:
+
+- `TPythonConnector`;
+- `TYOLO`;
+- `TCHATGPT`.
+
+A aplicação carrega uma imagem individual de lâmina, executa o modelo YOLO configurado, conta objetos por classe, desenha as detecções, calcula confiança média e emite resultados em JSON, CSV ou TXT. O `TCHATGPT` é opcional e recebe apenas os resultados numéricos para redigir um resumo técnico; ele não realiza a contagem.

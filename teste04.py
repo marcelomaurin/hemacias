@@ -205,6 +205,11 @@ def main() -> int:
             model_registry
             and Path(str(model_registry.get("path"))) == selected_path
         )
+        sha = hashlib.sha256()
+        with selected_path.open("rb") as fp:
+            for chunk in iter(lambda: fp.read(1024 * 1024), b""):
+                sha.update(chunk)
+        selected_model_sha256 = sha.hexdigest()
         if using_registered_model:
             status = str(model_registry.get("status") or "")
             if status not in {"VALIDACAO", "APROVADO"}:
@@ -213,11 +218,7 @@ def main() -> int:
 
             expected_sha = str(model_registry.get("sha256") or "").lower()
             if expected_sha:
-                sha = hashlib.sha256()
-                with selected_path.open("rb") as fp:
-                    for chunk in iter(lambda: fp.read(1024 * 1024), b""):
-                        sha.update(chunk)
-                actual_sha = sha.hexdigest()
+                actual_sha = selected_model_sha256
                 if actual_sha != expected_sha:
                     print(
                         "Erro: SHA-256 do modelo não confere com o cadastro. "
@@ -400,6 +401,14 @@ def main() -> int:
                         model_id=(
                             model_registry.get("id")
                             if args.method == "yolo" and model_registry else None
+                        ),
+                        model_sha256=(
+                            selected_model_sha256
+                            if args.method == "yolo" else None
+                        ),
+                        model_path=(
+                            str(selected_path)
+                            if args.method == "yolo" else None
                         ),
                         scale_label=(
                             args.scale_label

@@ -155,7 +155,8 @@ def main() -> int:
             active_protocol = next(
                 (
                     p for p in config.get("protocols", [])
-                    if config.get("sample", {}).get("protocol_id") == p.get("id")
+                    if int(config.get("sample", {}).get("protocol_id") or 0)
+                    == int(p.get("id") or 0)
                 ),
                 None,
             )

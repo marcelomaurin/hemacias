@@ -51,6 +51,123 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             header('Location: dataset.php');
             exit;
         }
+
+        if($action==='auto_split'){
+            $groupMode=(string)($_POST['group_mode']??'SAMPLE');
+            $trainRatio=(float)($_POST['train_ratio']??0.70);
+            $valRatio=(float)($_POST['val_ratio']??0.15);
+            $testRatio=(float)($_POST['test_ratio']??0.15);
+            $seed=trim((string)($_POST['seed_value']??'hemacias-v1'));
+
+            if(!in_array($groupMode,['SAMPLE','PATIENT'],true)) throw new RuntimeException('Modo de agrupamento inválido.');
+            if($seed==='') throw new RuntimeException('Seed obrigatório.');
+            foreach([$trainRatio,$valRatio,$testRatio] as $ratio){
+                if($ratio<0 || $ratio>1) throw new RuntimeException('As proporções devem estar entre 0 e 1.');
+            }
+            $sum=$trainRatio+$valRatio+$testRatio;
+            if(abs($sum-1.0)>0.0001) throw new RuntimeException('TRAIN + VAL + TEST deve somar 1,0.');
+
+            $groupExpr=$groupMode==='PATIENT'?'p.id':'s.id';
+            $st=db()->query(
+                "SELECT i.id image_id, s.id sample_id, p.id patient_id, $groupExpr group_id
+                 FROM dataset_items d
+                 JOIN sample_images i ON i.id=d.image_id
+                 JOIN samples s ON s.id=i.sample_id
+                 JOIN patients p ON p.id=s.patient_id
+                 WHERE d.review_state='APROVADA' AND d.included=1
+                 ORDER BY i.id"
+            );
+            $rows=$st->fetchAll();
+            if(!$rows) throw new RuntimeException('Não há imagens aprovadas e incluídas para dividir.');
+
+            $groups=[];
+            foreach($rows as $row){
+                $gid=(string)$row['group_id'];
+                $groups[$gid]??=[];
+                $groups[$gid][]=(int)$row['image_id'];
+            }
+
+            $groupList=[];
+            foreach($groups as $gid=>$imageIds){
+                $groupList[]=[
+                    'id'=>$gid,
+                    'images'=>$imageIds,
+                    'size'=>count($imageIds),
+                    'order'=>hash('sha256',$seed.'|'.$groupMode.'|'.$gid),
+                ];
+            }
+
+            usort($groupList,function($a,$b){
+                if($a['size']===$b['size']) return strcmp($a['order'],$b['order']);
+                return $b['size']<=>$a['size'];
+            });
+
+            $total=count($rows);
+            $targets=[
+                'TRAIN'=>$total*$trainRatio,
+                'VAL'=>$total*$valRatio,
+                'TEST'=>$total*$testRatio,
+            ];
+            $counts=['TRAIN'=>0,'VAL'=>0,'TEST'=>0];
+            $assignments=[];
+
+            foreach($groupList as $group){
+                $bestSplit=null;
+                $bestScore=null;
+                foreach(['TRAIN','VAL','TEST'] as $candidate){
+                    $temp=$counts;
+                    $temp[$candidate]+=$group['size'];
+                    $score=0.0;
+                    foreach(['TRAIN','VAL','TEST'] as $splitName){
+                        $den=max(1.0,$targets[$splitName]);
+                        $score+=pow(($temp[$splitName]-$targets[$splitName])/$den,2);
+                    }
+                    if($bestScore===null || $score<$bestScore){
+                        $bestScore=$score;
+                        $bestSplit=$candidate;
+                    }
+                }
+                $counts[$bestSplit]+=$group['size'];
+                $assignments[]=['group_id'=>$group['id'],'split'=>$bestSplit,'image_ids'=>$group['images']];
+            }
+
+            $pdo=db();$pdo->beginTransaction();
+            try{
+                $pdo->exec("UPDATE dataset_items SET split_set='NAO_DEFINIDO' WHERE review_state='APROVADA' AND included=1");
+                $upd=$pdo->prepare('UPDATE dataset_items SET split_set=? WHERE image_id=?');
+                foreach($assignments as $assignment){
+                    foreach($assignment['image_ids'] as $imageId){
+                        $upd->execute([$assignment['split'],$imageId]);
+                    }
+                }
+                $details=[
+                    'targets'=>$targets,
+                    'counts'=>$counts,
+                    'assignments'=>$assignments,
+                ];
+                $pdo->prepare(
+                    'INSERT INTO dataset_split_runs(
+                        group_mode,train_ratio,val_ratio,test_ratio,seed_value,
+                        eligible_images,group_count,train_images,val_images,test_images,
+                        created_by,details_json
+                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'
+                )->execute([
+                    $groupMode,$trainRatio,$valRatio,$testRatio,$seed,
+                    $total,count($groupList),$counts['TRAIN'],$counts['VAL'],$counts['TEST'],
+                    (int)$user['id'],json_encode($details,JSON_UNESCAPED_UNICODE)
+                ]);
+                $pdo->commit();
+            }catch(Throwable $e){
+                if($pdo->inTransaction())$pdo->rollBack();
+                throw $e;
+            }
+
+            audit('DATASET_AUTO_SPLIT','dataset_split_run',(int)$pdo->lastInsertId(),[
+                'group_mode'=>$groupMode,'seed'=>$seed,'counts'=>$counts
+            ]);
+            header('Location: dataset.php');
+            exit;
+        }
     }catch(Throwable $e){$error=$e->getMessage();}
 }
 
@@ -95,6 +212,14 @@ $metrics=db()->query(
      FROM dataset_items"
 )->fetch();
 
+$splitHistory=db()->query(
+    "SELECT r.*,u.name created_by_name
+     FROM dataset_split_runs r
+     LEFT JOIN users u ON u.id=r.created_by
+     ORDER BY r.created_at DESC
+     LIMIT 10"
+)->fetchAll();
+
 $classStats=db()->query(
     "SELECT a.class_code,a.class_name,COUNT(*) quantity,COUNT(DISTINCT a.image_id) images
      FROM image_annotations a
@@ -128,10 +253,47 @@ $classStats=db()->query(
 </form>
 </div>
 
-<div class="card"><strong>Exportação:</strong>
+<div class="grid">
+<div class="card">
+<strong>Exportação:</strong>
 <a class="button" href="export_dataset.php">Baixar dataset YOLO (.zip)</a>
 <small class="muted">Somente imagens incluídas, aprovadas e com split TRAIN/VAL/TEST.</small>
 </div>
+
+<div class="card">
+<h2>Divisão automática</h2>
+<form method="post">
+<input type="hidden" name="csrf" value="<?=h(csrf_token())?>">
+<input type="hidden" name="action" value="auto_split">
+<label>Agrupar por
+<select name="group_mode">
+<option value="SAMPLE">Amostra (recomendado)</option>
+<option value="PATIENT">Paciente (mais rigoroso)</option>
+</select></label>
+<div class="inline">
+<label>Train<input type="number" name="train_ratio" min="0" max="1" step="0.01" value="0.70" required></label>
+<label>Val<input type="number" name="val_ratio" min="0" max="1" step="0.01" value="0.15" required></label>
+<label>Test<input type="number" name="test_ratio" min="0" max="1" step="0.01" value="0.15" required></label>
+</div>
+<label>Seed<input name="seed_value" value="hemacias-v1" required></label>
+<button>Calcular TRAIN / VAL / TEST</button>
+<p><small class="muted">A divisão é aplicada somente às imagens APROVADAS e incluídas. Imagens do mesmo grupo nunca são separadas.</small></p>
+</form>
+</div>
+</div>
+
+<h2>Últimas divisões automáticas</h2>
+<table><tr><th>Data</th><th>Agrupamento</th><th>Proporção</th><th>Resultado</th><th>Seed</th><th>Usuário</th></tr>
+<?php foreach($splitHistory as $run):?>
+<tr>
+<td><?=h($run['created_at'])?></td>
+<td><?=h($run['group_mode'])?></td>
+<td><?=number_format((float)$run['train_ratio']*100,0)?> / <?=number_format((float)$run['val_ratio']*100,0)?> / <?=number_format((float)$run['test_ratio']*100,0)?>%</td>
+<td><?=$run['train_images']?> / <?=$run['val_images']?> / <?=$run['test_images']?></td>
+<td><?=h($run['seed_value'])?></td>
+<td><?=h($run['created_by_name'])?></td>
+</tr>
+<?php endforeach;?></table>
 
 <h2>Classes aprovadas</h2>
 <table><tr><th>Classe</th><th>Objetos</th><th>Imagens</th></tr>

@@ -146,6 +146,80 @@ if ($page === 'patient') {
     <?php layout_end();exit;
 }
 
+if ($page === 'count') {
+    $id=(int)($_GET['id']??0);
+    $st=db()->prepare(
+        'SELECT c.*,s.sample_code,s.id sample_id,p.name patient_name,p.id patient_id
+         FROM counts c
+         JOIN samples s ON s.id=c.sample_id
+         JOIN patients p ON p.id=s.patient_id
+         WHERE c.id=?'
+    );
+    $st->execute([$id]);
+    $count=$st->fetch();
+    if(!$count){http_response_code(404);exit('Contagem não encontrada.');}
+
+    $st=db()->prepare('SELECT * FROM count_components WHERE count_id=? ORDER BY id');
+    $st->execute([$id]);
+    $components=$st->fetchAll();
+
+    $st=db()->prepare('SELECT * FROM sample_images WHERE count_id=? ORDER BY created_at');
+    $st->execute([$id]);
+    $images=$st->fetchAll();
+
+    layout_start($user,'Contagem'); ?>
+    <h1>Contagem #<?=$count['id']?></h1>
+    <div class="card">
+      <b>Paciente:</b> <a href="index.php?page=patient&id=<?=$count['patient_id']?>"><?=h($count['patient_name'])?></a>
+      &nbsp; <b>Amostra:</b> <a href="index.php?page=sample&id=<?=$count['sample_id']?>"><?=h($count['sample_code'])?></a><br>
+      <b>Método:</b> <?=h($count['method'])?> &nbsp;
+      <b>Versão:</b> <?=h($count['algorithm_version'])?> &nbsp;
+      <b>Escala:</b> <?=h($count['scale_label'])?> &nbsp;
+      <b>Magnificação:</b> <?=h((string)$count['magnification'])?> &nbsp;
+      <b>Pixel:</b> <?=h((string)$count['pixel_size_um'])?> µm<br>
+      <b>Foco:</b> <?=h((string)$count['focus_score'])?> &nbsp;
+      <b>Qualidade:</b> <?=h($count['image_quality'])?> &nbsp;
+      <b>Origem:</b> <?=h($count['source'])?> &nbsp;
+      <b>Data:</b> <?=h($count['created_at'])?>
+    </div>
+
+    <h2>Componentes identificados</h2>
+    <table><tr><th>Componente</th><th>Quantidade</th><th>Unidade</th><th>Confiança</th></tr>
+    <?php foreach($components as $component):?>
+      <tr><td><?=h($component['component_name'])?></td><td><?=$component['quantity']?></td><td><?=h($component['unit'])?></td><td><?=h((string)$component['confidence'])?></td></tr>
+    <?php endforeach;?></table>
+
+    <h2>Imagem e identificações</h2>
+    <?php foreach($images as $img):
+      $detections=[];
+      foreach($components as $component){
+          $meta=json_decode((string)($component['metadata_json']??''),true);
+          if(is_array($meta) && is_array($meta['detections']??null)){
+              $detections=array_merge($detections,$meta['detections']);
+          }
+      }
+      $w=max(1,(int)($img['width_px']??1));
+      $hgt=max(1,(int)($img['height_px']??1));
+    ?>
+    <div class="card">
+      <div style="position:relative;display:inline-block;max-width:100%">
+        <img src="image.php?id=<?=$img['id']?>" alt="Amostra" style="display:block;max-width:100%;height:auto">
+        <svg viewBox="0 0 <?=$w?> <?=$hgt?>" preserveAspectRatio="xMidYMid meet"
+             style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none">
+          <?php foreach($detections as $det):
+            $x=(float)($det['x']??0); $y=(float)($det['y']??0); $r=max(2.0,(float)($det['radius_px']??4));
+          ?>
+            <circle cx="<?=$x?>" cy="<?=$y?>" r="<?=$r?>" fill="none" stroke="#00ff00" stroke-width="2"/>
+          <?php endforeach;?>
+        </svg>
+      </div>
+      <p><small class="muted"><?=h($img['original_name'])?> · <?=h($img['scale_label'])?> · <?=count($detections)?> identificação(ões)</small></p>
+    </div>
+    <?php endforeach; ?>
+
+    <?php layout_end();exit;
+}
+
 if ($page === 'sample') {
     $id=(int)($_GET['id']??0);
     $st=db()->prepare('SELECT s.*,p.name patient_name,p.id patient_id FROM samples s JOIN patients p ON p.id=s.patient_id WHERE s.id=?');$st->execute([$id]);$sample=$st->fetch();
@@ -161,7 +235,7 @@ if ($page === 'sample') {
     <label>Unidade<input name="unit" value="células/campo"></label><label>Escala<input name="scale_label" placeholder="Ex.: 40x"></label>
     <label>Magnificação<input type="number" step="0.001" name="magnification"></label><label>Observações<textarea name="notes"></textarea></label><button>Registrar contagem</button></form></section></div>
     <h2>Contagens</h2><table><tr><th>Data</th><th>Origem</th><th>Método</th><th>Escala</th><th>Componentes</th></tr>
-    <?php foreach($counts as $c):?><tr><td><?=h($c['created_at'])?></td><td><?=h($c['source'])?></td><td><?=h($c['method'])?></td><td><?=h($c['scale_label'])?></td><td><?=h($c['components'])?></td></tr><?php endforeach;?></table>
+    <?php foreach($counts as $c):?><tr><td><a href="index.php?page=count&id=<?=$c['id']?>"><?=h($c['created_at'])?></a></td><td><?=h($c['source'])?></td><td><?=h($c['method'])?></td><td><?=h($c['scale_label'])?></td><td><?=h($c['components'])?></td></tr><?php endforeach;?></table>
     <h2>Imagens</h2><div class="grid"><?php foreach($images as $img):?><div class="card"><a href="image.php?id=<?=$img['id']?>" target="_blank"><img src="image.php?id=<?=$img['id']?>" alt="" style="max-width:100%;max-height:260px"></a><br><small class="muted"><?=h($img['created_at'])?> · <?=h($img['scale_label'])?></small></div><?php endforeach;?></div>
     <?php layout_end();exit;
 }

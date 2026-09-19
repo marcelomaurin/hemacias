@@ -31,6 +31,7 @@ type
     function CreateSample(APatientID: Int64; const ASampleCode,
       AProtocolCode: string): Int64;
     function GetSampleSummary(ASampleID: Int64): TJSONObject;
+    function SaveAnnotations(AImageID: Int64; AAnnotations: TJSONArray): Boolean;
     function CreateCount(APayload: TJSONObject; const AImageFile: string;
       out ACountID, AImageID, AFieldID: Int64; out AFieldNo: Integer): Boolean;
   end;
@@ -266,6 +267,42 @@ begin
   begin
     FLastError := Result.Get('error', 'Falha ao consultar resumo da amostra.');
     FreeAndNil(Result);
+  end;
+end;
+
+function THemaciasApiClient.SaveAnnotations(AImageID: Int64;
+  AAnnotations: TJSONArray): Boolean;
+var
+  Req: TJSONObject;
+  Data: TJSONData;
+  ArrCopy: TJSONArray;
+begin
+  Result := False;
+  Req := TJSONObject.Create;
+  try
+    Req.Add('image_id', AImageID);
+    ArrCopy := TJSONArray(GetJSON(AAnnotations.AsJSON));
+    Req.Add('annotations', ArrCopy);
+    Data := RequestJSON('annotations_save', Req);
+  finally
+    Req.Free;
+  end;
+
+  if Data = nil then Exit;
+  try
+    if not (Data is TJSONObject) then
+    begin
+      FLastError := 'Resposta inválida ao salvar anotações.';
+      Exit;
+    end;
+    if not TJSONObject(Data).Get('ok', False) then
+    begin
+      FLastError := TJSONObject(Data).Get('error', 'Falha ao salvar anotações.');
+      Exit;
+    end;
+    Result := True;
+  finally
+    Data.Free;
   end;
 end;
 

@@ -215,10 +215,22 @@ try {
             throw new RuntimeException('SHA-256 do modelo inválido.');
         }
         if($modelId>0){
+            $stExpected=$pdo->prepare(
+                'SELECT cp.default_model_id
+                 FROM samples s
+                 LEFT JOIN count_protocols cp ON cp.id=s.protocol_id
+                 WHERE s.id=?'
+            );
+            $stExpected->execute([$sampleId]);
+            $expectedModelId=(int)($stExpected->fetchColumn()?:0);
+            if($expectedModelId!==$modelId){
+                throw new RuntimeException('Modelo informado não corresponde ao modelo padrão do protocolo.');
+            }
+
             $stModel=$pdo->prepare("SELECT version,sha256,status FROM ai_models WHERE id=? AND status IN ('VALIDACAO','APROVADO')");
             $stModel->execute([$modelId]);
             $modelRow=$stModel->fetch();
-            if(!$modelRow) throw new RuntimeException('Modelo informado não existe.');
+            if(!$modelRow) throw new RuntimeException('Modelo informado não existe ou não está liberado para uso.');
             $modelVersion=(string)$modelRow['version'];
             $modelSha=$modelRow['sha256'] ?: $modelSha;
         }

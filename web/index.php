@@ -108,7 +108,7 @@ function layout_start(array $user, string $title): void { ?>
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title><?=h($title)?> - Hemácias</title><link rel="stylesheet" href="assets/style.css"></head><body>
 <header><strong>Hemácias</strong><nav>
-<a href="index.php">Dashboard</a><a href="index.php?page=patients">Pacientes</a>
+<a href="index.php">Dashboard</a><a href="index.php?page=patients">Pacientes</a><a href="dataset.php">Dataset</a>
 <?php if ($user['role']==='ADMIN'): ?><a href="index.php?page=users">Gestão</a><?php endif; ?>
 <a href="index.php?page=logout">Sair (<?=h($user['name'])?>)</a></nav></header><main class="container">
 <?php }

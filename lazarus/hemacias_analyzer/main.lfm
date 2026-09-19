@@ -1,0 +1,13 @@
+object frmMain: TfrmMain
+  Left = 200
+  Height = 820
+  Top = 100
+  Width = 1320
+  Caption = 'Analisador de Lâminas - Hemácias'
+  ClientHeight = 820
+  ClientWidth = 1320
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  LCLVersion = '3.0.0.0'
+end

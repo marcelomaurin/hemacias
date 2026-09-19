@@ -46,6 +46,18 @@ csrf_check();
 $action=(string)($_POST['action']??'');
 
 if($action==='import_auto'){
+    $force=((string)($_POST['force']??'0'))==='1';
+    $stManual=db()->prepare("SELECT COUNT(*) FROM image_annotations WHERE image_id=? AND source='MANUAL'");
+    $stManual->execute([$imageId]);
+    $manualCount=(int)$stManual->fetchColumn();
+    if($manualCount>0 && !$force){
+        ann_json([
+            'ok'=>false,
+            'requires_force'=>true,
+            'error'=>'Esta imagem já possui revisão humana. A importação automática só pode reiniciar a anotação com confirmação explícita.'
+        ],409);
+    }
+
     $st=db()->prepare(
         'SELECT cc.metadata_json
          FROM sample_images i
@@ -92,7 +104,11 @@ if($action==='import_auto'){
 
     $pdo=db(); $pdo->beginTransaction();
     try{
-        $pdo->prepare('DELETE FROM image_annotations WHERE image_id=? AND source=\'AUTO_IMPORT\'')->execute([$imageId]);
+        if($force){
+            $pdo->prepare('DELETE FROM image_annotations WHERE image_id=?')->execute([$imageId]);
+        }else{
+            $pdo->prepare('DELETE FROM image_annotations WHERE image_id=? AND source=\'AUTO_IMPORT\'')->execute([$imageId]);
+        }
         $ins=$pdo->prepare(
             'INSERT INTO image_annotations(image_id,item_type_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
              VALUES(?,?,?,?,?,\'AUTO_IMPORT\',?,?,?)'
@@ -108,7 +124,7 @@ if($action==='import_auto'){
             'INSERT INTO annotation_revisions(image_id,user_id,action_type,details_json) VALUES(?,?,?,?)'
         )->execute([
             $imageId,(int)$user['id'],'IMPORT_AUTO',
-            json_encode(['count'=>count($auto)],JSON_UNESCAPED_UNICODE)
+            json_encode(['count'=>count($auto),'force'=>$force,'manual_replaced'=>$force?$manualCount:0],JSON_UNESCAPED_UNICODE)
         ]);
         $pdo->prepare(
             "INSERT INTO dataset_items(image_id,review_state,reviewed_by,reviewed_at)
@@ -120,7 +136,8 @@ if($action==='import_auto'){
         ann_json(['ok'=>true,'imported'=>count($auto)]);
     }catch(Throwable $e){
         if($pdo->inTransaction())$pdo->rollBack();
-        ann_json(['ok'=>false,'error'=>$e->getMessage()],500);
+        error_log('annotation import_auto: '.$e->getMessage());
+        ann_json(['ok'=>false,'error'=>'Falha interna ao importar anotações.'],500);
     }
 }
 
@@ -128,6 +145,7 @@ if($action==='save_all'){
     $raw=(string)($_POST['annotations']??'[]');
     $items=json_decode($raw,true);
     if(!is_array($items)) ann_json(['ok'=>false,'error'=>'annotations inválido'],422);
+    if(count($items)>5000) ann_json(['ok'=>false,'error'=>'Limite de 5000 anotações por imagem excedido.'],422);
 
     $width=max(1,(int)$image['width_px']);
     $height=max(1,(int)$image['height_px']);
@@ -144,6 +162,9 @@ if($action==='save_all'){
         $classCode=(string)$type['code'];
         $className=(string)$type['name'];
         $polygon=$item['polygon']??null;
+        if(is_array($polygon) && count($polygon)>2000){
+            ann_json(['ok'=>false,'error'=>"Anotação {$idx} excede 2000 pontos."],422);
+        }
         if($classCode==='' || $className==='' || !is_array($polygon) || count($polygon)<3){
             ann_json(['ok'=>false,'error'=>"Anotação {$idx} inválida."],422);
         }
@@ -161,7 +182,7 @@ if($action==='save_all'){
             'class_code'=>$classCode,
             'class_name'=>$className,
             'polygon'=>$points,
-            'review_status'=>in_array(($item['review_status']??'APROVADA'),['PENDENTE','APROVADA','REJEITADA'],true)?$item['review_status']:'APROVADA',
+            'review_status'=>'APROVADA',
             'notes'=>trim((string)($item['notes']??''))?:null,
         ];
     }
@@ -197,7 +218,8 @@ if($action==='save_all'){
         ann_json(['ok'=>true,'saved'=>count($clean)]);
     }catch(Throwable $e){
         if($pdo->inTransaction())$pdo->rollBack();
-        ann_json(['ok'=>false,'error'=>$e->getMessage()],500);
+        error_log('annotation save_all: '.$e->getMessage());
+        ann_json(['ok'=>false,'error'=>'Falha interna ao salvar anotações.'],500);
     }
 }
 

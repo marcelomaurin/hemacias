@@ -45,6 +45,72 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
 csrf_check();
 $action=(string)($_POST['action']??'');
 
+if($action==='import_auto'){
+    $st=db()->prepare(
+        'SELECT cc.metadata_json
+         FROM sample_images i
+         JOIN count_components cc ON cc.count_id=i.count_id
+         WHERE i.id=? AND i.count_id IS NOT NULL'
+    );
+    $st->execute([$imageId]);
+    $auto=[];
+    foreach($st->fetchAll() as $row){
+        $meta=json_decode((string)($row['metadata_json']??''),true);
+        if(!is_array($meta) || !is_array($meta['detections']??null)) continue;
+        foreach($meta['detections'] as $det){
+            $polygon=$det['polygon']??null;
+            if(!is_array($polygon) || count($polygon)<3){
+                $x=(float)($det['x']??0);
+                $y=(float)($det['y']??0);
+                $r=max(3.0,(float)($det['radius_px']??6));
+                $polygon=[];
+                for($i=0;$i<16;$i++){
+                    $a=2*M_PI*$i/16;
+                    $polygon[]=[
+                        max(0,min((float)$image['width_px'],$x+$r*cos($a))),
+                        max(0,min((float)$image['height_px'],$y+$r*sin($a)))
+                    ];
+                }
+            }
+            $auto[]=[
+                'class_code'=>(string)($det['class_name']??'hemacia'),
+                'class_name'=>((string)($det['class_name']??'hemacia')==='hemacia'?'Hemácia':(string)($det['class_name']??'Outro')),
+                'polygon'=>$polygon,
+                'review_status'=>'PENDENTE',
+                'notes'=>'Importada da detecção automática',
+            ];
+        }
+    }
+
+    $pdo=db(); $pdo->beginTransaction();
+    try{
+        $pdo->prepare('DELETE FROM image_annotations WHERE image_id=? AND source=\'AUTO_IMPORT\'')->execute([$imageId]);
+        $ins=$pdo->prepare(
+            'INSERT INTO image_annotations(image_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
+             VALUES(?,?,?,?,\'AUTO_IMPORT\',?,?,?)'
+        );
+        foreach($auto as $item){
+            $ins->execute([
+                $imageId,$item['class_code'],$item['class_name'],
+                json_encode($item['polygon'],JSON_UNESCAPED_UNICODE),
+                $item['review_status'],$item['notes'],(int)$user['id']
+            ]);
+        }
+        $pdo->prepare(
+            'INSERT INTO annotation_revisions(image_id,user_id,action_type,details_json) VALUES(?,?,?,?)'
+        )->execute([
+            $imageId,(int)$user['id'],'IMPORT_AUTO',
+            json_encode(['count'=>count($auto)],JSON_UNESCAPED_UNICODE)
+        ]);
+        $pdo->commit();
+        audit('ANNOTATION_IMPORT_AUTO','sample_image',$imageId,['count'=>count($auto)]);
+        ann_json(['ok'=>true,'imported'=>count($auto)]);
+    }catch(Throwable $e){
+        if($pdo->inTransaction())$pdo->rollBack();
+        ann_json(['ok'=>false,'error'=>$e->getMessage()],500);
+    }
+}
+
 if($action==='save_all'){
     $raw=(string)($_POST['annotations']??'[]');
     $items=json_decode($raw,true);
@@ -81,7 +147,7 @@ if($action==='save_all'){
 
     $pdo=db(); $pdo->beginTransaction();
     try{
-        $pdo->prepare('DELETE FROM image_annotations WHERE image_id=? AND source=\'MANUAL\'')->execute([$imageId]);
+        $pdo->prepare('DELETE FROM image_annotations WHERE image_id=?')->execute([$imageId]);
         $ins=$pdo->prepare(
             'INSERT INTO image_annotations(image_id,class_code,class_name,polygon_json,source,review_status,notes,created_by)
              VALUES(?,?,?,?,\'MANUAL\',?,?,?)'

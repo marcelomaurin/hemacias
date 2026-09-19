@@ -51,6 +51,7 @@ Ações implementadas:
 - `model_metric_upsert`
 - `models_list`
 - `sample_summary`
+- `annotations_save`
 
 A aplicação `teste04.py` usa essas ações automaticamente.
 
@@ -426,3 +427,8 @@ Se a análise informar `model_id` e o modelo cadastrado possuir SHA-256, a API r
 ### sample_summary
 
 Retorna a visão consolidada de uma amostra para clientes desktop e integrações: campos microscópicos, situação de qualidade, contagens consolidadas e estatísticas por componente. Uma amostra é marcada como pronta somente quando atende simultaneamente o número total de campos e o número mínimo de campos válidos definidos pelo protocolo.
+
+
+### annotations_save
+
+Endpoint autenticado por `X-API-Key` destinado a clientes desktop. Recebe `image_id` e a lista completa de anotações revisadas, valida classe e geometria e grava o resultado como ground truth manual aprovado. A imagem é marcada como `REVISADA` no gerenciador de dataset. A operação preserva a contagem automática original e registra a correção humana separadamente.

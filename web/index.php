@@ -225,6 +225,7 @@ if ($page === 'count') {
         </svg>
       </div>
       <p><small class="muted"><?=h($img['original_name'])?> · <?=h($img['scale_label'])?> · <?=count($detections)?> identificação(ões)</small></p>
+      <p><a class="button" href="annotation.php?image_id=<?=$img['id']?>">Revisar / Anotar imagem</a></p>
     </div>
     <?php endforeach; ?>
 
@@ -247,7 +248,7 @@ if ($page === 'sample') {
     <label>Magnificação<input type="number" step="0.001" name="magnification"></label><label>Observações<textarea name="notes"></textarea></label><button>Registrar contagem</button></form></section></div>
     <h2>Contagens</h2><table><tr><th>Data</th><th>Origem</th><th>Método</th><th>Escala</th><th>Componentes</th></tr>
     <?php foreach($counts as $c):?><tr><td><a href="index.php?page=count&id=<?=$c['id']?>"><?=h($c['created_at'])?></a></td><td><?=h($c['source'])?></td><td><?=h($c['method'])?></td><td><?=h($c['scale_label'])?></td><td><?=h($c['components'])?></td></tr><?php endforeach;?></table>
-    <h2>Imagens</h2><div class="grid"><?php foreach($images as $img):?><div class="card"><a href="image.php?id=<?=$img['id']?>" target="_blank"><img src="image.php?id=<?=$img['id']?>" alt="" style="max-width:100%;max-height:260px"></a><br><small class="muted"><?=h($img['created_at'])?> · <?=h($img['scale_label'])?></small></div><?php endforeach;?></div>
+    <h2>Imagens</h2><div class="grid"><?php foreach($images as $img):?><div class="card"><a href="image.php?id=<?=$img['id']?>" target="_blank"><img src="image.php?id=<?=$img['id']?>" alt="" style="max-width:100%;max-height:260px"></a><br><small class="muted"><?=h($img['created_at'])?> · <?=h($img['scale_label'])?></small><p><a class="button" href="annotation.php?image_id=<?=$img['id']?>">Anotar / Revisar</a></p></div><?php endforeach;?></div>
     <?php layout_end();exit;
 }
 

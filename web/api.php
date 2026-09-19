@@ -82,6 +82,10 @@ try {
             );
             $st->execute([$sampleId]);
             $sample=$st->fetch()?:null;
+            if($sample){
+                $sample['id']=(int)$sample['id'];
+                $sample['protocol_id']=$sample['protocol_id']===null?null:(int)$sample['protocol_id'];
+            }
         }
 
         json_response(['ok'=>true,'items'=>$items,'protocols'=>$protocols,'sample'=>$sample]);

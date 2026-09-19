@@ -54,23 +54,25 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             $modelId=(int)$_POST['model_id'];
             $itemTypeId=(int)($_POST['item_type_id']??0);
             $scope=$itemTypeId>0?'CLASSE':'GERAL';
+            $origin=(string)($_POST['metric_origin']??'MANUAL');
+            if(!in_array($origin,['TRAINING','COUNT_REFERENCE','GROUND_TRUTH','MANUAL'],true)) throw new RuntimeException('Origem de métrica inválida.');
             $v=function(string $name){
                 $raw=trim((string)($_POST[$name]??''));
                 return $raw===''?null:(float)$raw;
             };
             if($itemTypeId>0){
-                $del=db()->prepare('DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id=? AND metric_scope=\'CLASSE\'');
-                $del->execute([$modelId,$itemTypeId]);
+                $del=db()->prepare('DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id=? AND metric_scope=\'CLASSE\' AND metric_origin=?');
+                $del->execute([$modelId,$itemTypeId,$origin]);
             }else{
-                $del=db()->prepare('DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id IS NULL AND metric_scope=\'GERAL\'');
-                $del->execute([$modelId]);
+                $del=db()->prepare('DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id IS NULL AND metric_scope=\'GERAL\' AND metric_origin=?');
+                $del->execute([$modelId,$origin]);
             }
             $st=db()->prepare(
-                'INSERT INTO ai_model_metrics(model_id,item_type_id,metric_scope,precision_value,recall_value,f1_value,map50_value,map5095_value,mae_value,bias_value,mape_value,sample_count,notes)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                'INSERT INTO ai_model_metrics(model_id,item_type_id,metric_scope,metric_origin,precision_value,recall_value,f1_value,map50_value,map5095_value,mae_value,bias_value,mape_value,sample_count,notes)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $st->execute([
-                $modelId,$itemTypeId?:null,$scope,$v('precision'),$v('recall'),$v('f1'),
+                $modelId,$itemTypeId?:null,$scope,$origin,$v('precision'),$v('recall'),$v('f1'),
                 $v('map50'),$v('map5095'),$v('mae'),$v('bias'),$v('mape'),
                 $_POST['sample_count']===''?null:(int)$_POST['sample_count'],
                 trim((string)($_POST['notes']??''))?:null
@@ -131,9 +133,9 @@ foreach(db()->query(
 <button type="button" onclick="document.getElementById('model<?=$m['id']?>').showModal()">Editar modelo</button>
 <button type="button" onclick="document.getElementById('metric<?=$m['id']?>').showModal()">Registrar métrica</button>
 
-<?php if(!empty($metrics[(int)$m['id']])):?><table><tr><th>Escopo</th><th>Precision</th><th>Recall</th><th>F1</th><th>mAP50</th><th>mAP50-95</th><th>MAE</th><th>Viés</th><th>MAPE</th><th>N</th></tr>
+<?php if(!empty($metrics[(int)$m['id']])):?><table><tr><th>Origem</th><th>Escopo</th><th>Precision</th><th>Recall</th><th>F1</th><th>mAP50</th><th>mAP50-95</th><th>MAE</th><th>Viés</th><th>MAPE</th><th>N</th></tr>
 <?php foreach($metrics[(int)$m['id']] as $mm):?><tr>
-<td><?=h($mm['item_name']?:'Geral')?></td><td><?=h((string)$mm['precision_value'])?></td><td><?=h((string)$mm['recall_value'])?></td><td><?=h((string)$mm['f1_value'])?></td>
+<td><?=h($mm['metric_origin'])?></td><td><?=h($mm['item_name']?:'Geral')?></td><td><?=h((string)$mm['precision_value'])?></td><td><?=h((string)$mm['recall_value'])?></td><td><?=h((string)$mm['f1_value'])?></td>
 <td><?=h((string)$mm['map50_value'])?></td><td><?=h((string)$mm['map5095_value'])?></td><td><?=h((string)$mm['mae_value'])?></td><td><?=h((string)$mm['bias_value'])?></td><td><?=h((string)$mm['mape_value'])?></td><td><?=h((string)$mm['sample_count'])?></td>
 </tr><?php endforeach;?></table><?php endif;?>
 </section>
@@ -155,6 +157,7 @@ foreach(db()->query(
 <dialog id="metric<?=$m['id']?>"><form method="post" class="card" style="min-width:520px">
 <input type="hidden" name="csrf" value="<?=h(csrf_token())?>"><input type="hidden" name="action" value="save_metric"><input type="hidden" name="model_id" value="<?=$m['id']?>">
 <h3>Métrica · <?=h($m['name'].' '.$m['version'])?></h3>
+<label>Origem<select name="metric_origin"><option>MANUAL</option><option>TRAINING</option><option>COUNT_REFERENCE</option><option>GROUND_TRUTH</option></select></label>
 <label>Componente<select name="item_type_id"><option value="0">Geral</option><?php foreach($items as $it):?><option value="<?=$it['id']?>"><?=h($it['name'])?></option><?php endforeach;?></select></label>
 <div class="grid">
 <label>Precision<input type="number" step="0.000001" name="precision"></label><label>Recall<input type="number" step="0.000001" name="recall"></label>

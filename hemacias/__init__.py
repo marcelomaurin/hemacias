@@ -11,4 +11,9 @@ __all__ = [
     "WatershedConfig",
     "WatershedResult",
     "SegmentedCell",
+    "YoloSegCounter",
+    "YoloResult",
+    "YoloCell",
 ]
+
+from .yolo_counter import YoloSegCounter, YoloResult, YoloCell

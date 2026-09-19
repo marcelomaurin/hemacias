@@ -14,6 +14,15 @@ $st=db()->prepare(
 $st->execute([$imageId]);
 $image=$st->fetch();
 if(!$image){http_response_code(404);exit('Imagem não encontrada.');}
+
+$annotationItems=db()->query(
+    "SELECT id,code,name,color_hex
+     FROM count_item_types
+     WHERE active=1 AND annotation_enabled=1
+     ORDER BY sort_order,name"
+)->fetchAll();
+$itemColors=[];
+foreach($annotationItems as $item){$itemColors[$item['code']]=$item['color_hex'];}
 ?><!doctype html>
 <html lang="pt-BR">
 <head>
@@ -40,12 +49,9 @@ if(!$image){http_response_code(404);exit('Imagem não encontrada.');}
 <div class="annotation-toolbar card">
 <label>Classe
 <select id="classSelect">
-<option value="hemacia|Hemácia">Hemácia</option>
-<option value="leucocito|Leucócito">Leucócito</option>
-<option value="plaqueta|Plaqueta">Plaqueta</option>
-<option value="artefato|Artefato">Artefato</option>
-<option value="outro|Outro">Outro</option>
-</select></label>
+<?php foreach($annotationItems as $item):?>
+<option value="<?=h($item['code'].'|'.$item['name'])?>"><?=h($item['name'])?></option>
+<?php endforeach;?></select></label>
 <button type="button" id="finishPolygon">Finalizar polígono</button>
 <button type="button" id="undoPoint">Desfazer ponto</button>
 <button type="button" id="deleteSelected">Excluir selecionada</button>
@@ -75,6 +81,7 @@ const IMAGE_W=<?=max(1,(int)$image['width_px'])?>;
 const IMAGE_H=<?=max(1,(int)$image['height_px'])?>;
 const CSRF=<?=json_encode(csrf_token())?>;
 const READ_ONLY=<?=json_encode(($user['role']??'')==='LEITURA')?>;
+const ITEM_COLORS=<?=json_encode($itemColors,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)?>;
 
 const svg=document.getElementById('annotationSvg');
 const statusBox=document.getElementById('annotationStatus');
@@ -94,7 +101,7 @@ function classInfo(){
   return {class_code,class_name};
 }
 function colorFor(code){
-  return ({hemacia:'#00ff00',leucocito:'#00b7ff',plaqueta:'#ffd000',artefato:'#ff3b30',outro:'#ffffff'})[code]||'#ffffff';
+  return ITEM_COLORS[code]||'#ffffff';
 }
 function redraw(){
   svg.innerHTML='';

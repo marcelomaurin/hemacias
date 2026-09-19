@@ -44,6 +44,87 @@ class HemaciasApiClient:
             raise RuntimeError(data.get("error", "Falha ao carregar configuração."))
         return data
 
+    def register_model(
+        self,
+        *,
+        code: str,
+        name: str,
+        version: str,
+        file_path: str,
+        sha256: str | None = None,
+        dataset_ref: str | None = None,
+        imgsz: int | None = None,
+        epochs: int | None = None,
+        classes: list[str] | None = None,
+        status: str = "VALIDACAO",
+        model_type: str = "YOLO_SEG",
+        trained_at: str | None = None,
+        notes: str | None = None,
+    ) -> int:
+        data = self._request_json(
+            "model_register",
+            {
+                "code": code,
+                "name": name,
+                "version": version,
+                "file_path": file_path,
+                "sha256": sha256,
+                "dataset_ref": dataset_ref,
+                "imgsz": imgsz,
+                "epochs": epochs,
+                "classes": classes or [],
+                "status": status,
+                "model_type": model_type,
+                "trained_at": trained_at,
+                "notes": notes,
+            },
+        )
+        if not data.get("ok"):
+            raise RuntimeError(data.get("error", "Falha ao registrar modelo."))
+        return int(data["model_id"])
+
+    def upsert_model_metric(
+        self,
+        *,
+        model_id: int,
+        component_code: str | None = None,
+        precision: float | None = None,
+        recall: float | None = None,
+        f1: float | None = None,
+        map50: float | None = None,
+        map5095: float | None = None,
+        mae: float | None = None,
+        bias: float | None = None,
+        mape: float | None = None,
+        sample_count: int | None = None,
+        notes: str | None = None,
+    ) -> None:
+        data = self._request_json(
+            "model_metric_upsert",
+            {
+                "model_id": model_id,
+                "component_code": component_code,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "map50": map50,
+                "map5095": map5095,
+                "mae": mae,
+                "bias": bias,
+                "mape": mape,
+                "sample_count": sample_count,
+                "notes": notes,
+            },
+        )
+        if not data.get("ok"):
+            raise RuntimeError(data.get("error", "Falha ao registrar métrica."))
+
+    def list_models(self) -> list[dict[str, Any]]:
+        data = self._request_json("models_list", {})
+        if not data.get("ok"):
+            raise RuntimeError(data.get("error", "Falha ao consultar modelos."))
+        return list(data.get("models", []))
+
     def upsert_patient(
         self,
         *,

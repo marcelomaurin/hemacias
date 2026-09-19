@@ -58,10 +58,16 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                 $raw=trim((string)($_POST[$name]??''));
                 return $raw===''?null:(float)$raw;
             };
+            if($itemTypeId>0){
+                $del=db()->prepare('DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id=? AND metric_scope=\'CLASSE\'');
+                $del->execute([$modelId,$itemTypeId]);
+            }else{
+                $del=db()->prepare('DELETE FROM ai_model_metrics WHERE model_id=? AND item_type_id IS NULL AND metric_scope=\'GERAL\'');
+                $del->execute([$modelId]);
+            }
             $st=db()->prepare(
                 'INSERT INTO ai_model_metrics(model_id,item_type_id,metric_scope,precision_value,recall_value,f1_value,map50_value,map5095_value,mae_value,bias_value,mape_value,sample_count,notes)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-                 ON DUPLICATE KEY UPDATE precision_value=VALUES(precision_value),recall_value=VALUES(recall_value),f1_value=VALUES(f1_value),map50_value=VALUES(map50_value),map5095_value=VALUES(map5095_value),mae_value=VALUES(mae_value),bias_value=VALUES(bias_value),mape_value=VALUES(mape_value),sample_count=VALUES(sample_count),notes=VALUES(notes)'
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $st->execute([
                 $modelId,$itemTypeId?:null,$scope,$v('precision'),$v('recall'),$v('f1'),

@@ -149,6 +149,30 @@ try {
         $d=json_input();
         $modelId=(int)($d['model_id']??0);
         if($modelId<1) json_response(['ok'=>false,'error'=>'model_id obrigatório'],422);
+
+        foreach(['precision','recall','f1','map50','map5095'] as $key){
+            if(array_key_exists($key,$d) && $d[$key]!==null){
+                $v=(float)$d[$key];
+                if(!is_finite($v)||$v<0.0||$v>1.0){
+                    json_response(['ok'=>false,'error'=>"{$key} deve estar entre 0 e 1"],422);
+                }
+            }
+        }
+        foreach(['mae','mape'] as $key){
+            if(array_key_exists($key,$d) && $d[$key]!==null){
+                $v=(float)$d[$key];
+                if(!is_finite($v)||$v<0.0){
+                    json_response(['ok'=>false,'error'=>"{$key} deve ser >= 0"],422);
+                }
+            }
+        }
+        if(array_key_exists('bias',$d) && $d['bias']!==null && !is_finite((float)$d['bias'])){
+            json_response(['ok'=>false,'error'=>'bias inválido'],422);
+        }
+        if(array_key_exists('sample_count',$d) && $d['sample_count']!==null && (int)$d['sample_count']<0){
+            json_response(['ok'=>false,'error'=>'sample_count deve ser >= 0'],422);
+        }
+
         $code=trim((string)($d['component_code']??''));
         $itemTypeId=null;
         $scope='GERAL';

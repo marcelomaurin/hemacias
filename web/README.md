@@ -206,3 +206,57 @@ Para bancos existentes, execute:
 ```sql
 web/migrations/004_dataset_auto_split.sql
 ```
+
+
+## Campos microscópicos e consolidação
+
+Cada captura salva pela API passa a criar um **campo microscópico** ligado à amostra, à contagem e à imagem.
+
+Acesse:
+
+```text
+sample_analysis.php?sample_id=ID
+```
+
+A página mostra:
+
+- total de campos;
+- campos válidos;
+- campos rejeitados/excluídos;
+- campos para revisão;
+- média por componente;
+- mediana;
+- mínimo;
+- máximo;
+- desvio-padrão amostral;
+- revisão manual do status de cada campo.
+
+O controle automático de qualidade considera:
+
+- foco;
+- brilho médio;
+- excesso de sombras;
+- excesso de altas luzes;
+- desigualdade de iluminação.
+
+Estados:
+
+```text
+ACEITA
+REVISAR
+REJEITADA
+```
+
+Campos rejeitados ficam fora da consolidação por padrão.
+
+No Python, um campo `REJEITADA` não é enviado quando o usuário pressiona `S`, salvo se a execução tiver:
+
+```bash
+--allow-low-quality-save
+```
+
+Para bancos existentes, execute:
+
+```sql
+web/migrations/005_microscopic_fields.sql
+```

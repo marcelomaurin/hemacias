@@ -208,8 +208,19 @@ if ($page === 'count') {
              style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none">
           <?php foreach($detections as $det):
             $x=(float)($det['x']??0); $y=(float)($det['y']??0); $r=max(2.0,(float)($det['radius_px']??4));
+            $polygon=is_array($det['polygon']??null)?$det['polygon']:[];
+            $points=[];
+            foreach($polygon as $point){
+                if(is_array($point) && count($point)>=2){
+                    $points[]=(float)$point[0].','.(float)$point[1];
+                }
+            }
           ?>
-            <circle cx="<?=$x?>" cy="<?=$y?>" r="<?=$r?>" fill="none" stroke="#00ff00" stroke-width="2"/>
+            <?php if(count($points)>=3):?>
+              <polygon points="<?=h(implode(' ',$points))?>" fill="none" stroke="#00ff00" stroke-width="2"/>
+            <?php else:?>
+              <circle cx="<?=$x?>" cy="<?=$y?>" r="<?=$r?>" fill="none" stroke="#00ff00" stroke-width="2"/>
+            <?php endif;?>
           <?php endforeach;?>
         </svg>
       </div>

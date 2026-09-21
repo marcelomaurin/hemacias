@@ -1,3 +1,15 @@
+
+CREATE TABLE IF NOT EXISTS params (
+    `key` VARCHAR(80) NOT NULL PRIMARY KEY,
+    `value` TEXT NULL,
+    `description` VARCHAR(255) NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+INSERT IGNORE INTO params(`key`, `value`, `description`)
+VALUES('VERSAO', '1.0', 'Versão atual do sistema');
+
 CREATE DATABASE IF NOT EXISTS hemacias
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;

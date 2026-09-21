@@ -7,17 +7,28 @@ Requisitos:
 - extensões PDO MySQL e FileInfo
 - servidor HTTPS em produção
 
-## Instalação
+## Instalação e Auto-Instalador
 
-1. Importe `schema.sql` no MySQL.
-2. Copie `config.example.php` para `config.php`.
-3. Configure banco, `api_key`, `install_key` e diretório de upload.
-4. Garanta permissão de escrita para `web/uploads/` pelo usuário do servidor web.
-5. Abra `install.php` e crie o primeiro administrador.
-6. Após a instalação, restrinja ou remova `install.php` no servidor.
+1. Copie `config.example.php` para `config.php`.
+2. Configure as credenciais do banco MySQL, `api_key`, `install_key` e diretório de upload. (Em hospedagens como Hostinger/hPanel, use `host=localhost` e inclua o prefixo da sua conta no `dbname` e `user`).
+3. Garanta permissão de escrita para `web/uploads/`.
+4. Acesse `install.php` no navegador.
+5. O painel de Auto-Instalação detectará o banco e executará a criação das tabelas e migrações automaticamente com 1 clique (sem necessidade de importar arquivos no phpMyAdmin).
+6. Cadastre o primeiro administrador na mesma tela usando a `install_key` definida no seu `config.php`.
 7. Acesse `index.php`.
 
 Nunca versione `config.php`: ele contém credenciais e chaves.
+
+## Arquitetura MVC & WebService (WS)
+
+A aplicação agora segue o padrão MVC e comunicação desacoplada via WebService em PHP:
+- **Models** (`web/lib/Models/`): `UserModel`, `PatientModel`, `SampleModel`, `VersionModel`, `BaseModel`.
+- **Controllers** (`web/lib/Controllers/`): `AuthWsController`, `InstallWsController`, `VersionWsController`, `PatientWsController`, `SampleWsController`.
+- **WebService** (`web/ws.php`): Endpoint JSON unificado (`action=...`) com captura graciosa de exceções e respostas estruturadas sem páginas de erro 500 em branco.
+- **Controle de Versão**:
+  - `system_version` e `schema_migrations` gravados no MySQL.
+  - Constante de versão em `App::VERSION` (v1.1.0) e schema alvo (`v10`).
+  - Rodapé e telas exibem dinamicamente a versão da aplicação e o status de atualização do banco.
 
 ## Estrutura de dados
 

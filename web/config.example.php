@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 return [
     'db' => [
-        'dsn' => 'mysql:host=127.0.0.1;dbname=hemacias;charset=utf8mb4',
+        // Em hospedagens compartilhadas como Hostinger, use host=localhost e adicione o prefixo da conta no dbname e user:
+        // Exemplo: 'mysql:host=localhost;dbname=u123456789_hemacias;charset=utf8mb4'
+        'dsn' => 'mysql:host=localhost;dbname=hemacias;charset=utf8mb4',
         'user' => 'hemacias',
         'password' => 'troque-esta-senha',
     ],
@@ -13,6 +15,7 @@ return [
         'upload_dir' => __DIR__ . '/uploads',
         'max_upload_bytes' => 10 * 1024 * 1024,
         'timezone' => 'America/Sao_Paulo',
+        'debug' => false,
     ],
     'security' => [
         'api_key' => 'GERE-UMA-CHAVE-LONGA-E-ALEATORIA',

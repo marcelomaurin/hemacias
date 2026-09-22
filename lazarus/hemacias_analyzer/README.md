@@ -1,199 +1,98 @@
-# Hemácias Analyzer — Lazarus
+# Hemácias Analyzer — Lazarus (AI Suite + Morfometria Óptica)
 
-Aplicação desktop para análise experimental de **uma lâmina/imagem microscópica por vez**, usando a biblioteca Lazarus AI Suite do repositório `marcelomaurin/CHATGPT`.
+Aplicação desktop profissional para análise microscópica, contagem celular multiclasse, calibração óptica física, morfometria individual e populacional de hemácias, e cálculo de índices hematológicos clínicos a partir de dados laboratoriais externos.
 
-## Componentes usados
+Utiliza a suíte Lazarus AI do repositório `marcelomaurin/CHATGPT`.
 
-- `TPythonConnector`
-- `TYOLO`
-- `TCHATGPT`
+---
 
-A contagem objetiva é feita pelo `TYOLO`. O `TCHATGPT` é opcional e recebe **somente os números já calculados**, para redigir um resumo textual sem modificar a contagem.
+## 1. Funcionalidades Principais
 
-## Pré-requisitos
+1. **Pipeline Unificado de Entrada**:
+   - **Arquivo**: carregamento de fotografias microscópicas do disco (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.webp`).
+   - **Câmera ao Vivo**: detecção de dispositivos USB/DShow e captura direta de quadros do microscópio óptico.
+2. **Sistema de Calibração Óptica**:
+   - Perfis ópticos por objetiva: `10x`, `20x`, `40x (padrão)`, `100x (imersão)` ou `Personalizada`.
+   - Parâmetros físicos: magnificação do adaptador de câmera e tamanho do pixel do sensor (ex: 3,45 µm).
+   - Cálculo automático da escala teórica: $\text{escala} = \frac{\text{pixel\_sensor}}{\text{objetiva} \times \text{adaptador}}$.
+   - **Calibração por Régua Micrométrica**: seleção de 2 pontos na lâmina padrão com cálculo preciso em $\mu m/\text{pixel}$ ($D_{px} = \sqrt{\Delta x^2 + \Delta y^2}$; $\text{escala} = \text{dist\_um} / D_{px}$).
+3. **Morfometria Individual e Populacional**:
+   - **Área** (Shoelace Formula em pixels e $\mu m^2$).
+   - **Perímetro** (soma euclidiana de vértices ou elipse de Ramanujan em pixels e $\mu m$).
+   - **Diâmetro Equivalente** ($D_{eq} = 2\sqrt{A/\pi}$ em pixels e $\mu m$).
+   - **Circularidade** ($4\pi A / P^2$, onde 1.0 = círculo perfeito).
+   - **Eixos Maior e Menor** e razão de aspecto.
+   - **Filtro de Células de Borda**: detecção automática de hemácias seccionadas nas margens da imagem. As medições individuais são preservadas, mas excluídas das estatísticas populacionais para não distorcer a distribuição de tamanho.
+   - **Estatísticas Populacionais**: Média, Desvio Padrão, Mediana, Mínimo, Máximo, Percentis P10, P25, P75, P90.
+   - **CV do Diâmetro Microscópico**: Coeficiente de variação geométrica das hemácias na lâmina ($DP / \text{Média} \times 100$). **Nota**: Representa a dispersão microscópica local e não deve ser rotulado como o RDW clínico laboratorial.
+4. **Camadas Visuais (Overlays)**:
+   - Alternância independente de **Contornos** (polígonos YOLO), **IDs** numéricos das células e **Diâmetros** calculados em $\mu m$.
+   - **Barra de Escala Dinâmica**: renderizada no canto da imagem com calibração automática ($5, 10, 20, 50, 100\,\mu m$).
+5. **Módulo de Índices Hematológicos Clínicos**:
+   - Entrada de parâmetros externos obtidos de contador hematológico automatizado:
+     - **Hemácias (RBC)** em $10^6/\mu L$
+     - **Hemoglobina (Hb)** em $g/dL$
+     - **Hematócrito (Hct)** em $\%$
+   - Cálculo rigoroso conforme fórmulas clínicas oficiais de Wintrobe:
+     - $\text{VCM} = \frac{\text{Hct} \times 10}{\text{RBC}}\,(fL)$ (Ref: 80 - 100 fL)
+     - $\text{HCM} = \frac{\text{Hb} \times 10}{\text{RBC}}\,(pg)$ (Ref: 27 - 32 pg)
+     - $\text{CHCM} = \frac{\text{Hb} \times 100}{\text{Hct}}\,(g/dL)$ (Ref: 32 - 36 g/dL)
+   - **Aviso Metodológico**: O sistema nunca infere hemoglobina ou VCM clínico a partir de geometria 2D de microscopia óptica.
+6. **Revisão Humana e Dataset Ground Truth**:
+   - Correção interativa de classes, exclusão de falso-positivos e adição manual de células ausentes com recálculo automático da morfometria.
+   - Persistência das anotações revisadas no dataset web para retreinamento supervisionado.
+7. **Integração Web API e Banco de Dados**:
+   - Envio do campo microscópico contendo o snapshot óptico completo, medições individuais de todas as células e resumo morfométrico.
+   - Migração de banco `011_optical_profiles_and_measurements.sql` com tabelas `optical_profiles`, `cell_measurements` e `sample_hematology`.
 
-Instale no Lazarus, a partir da biblioteca CHATGPT:
+---
 
-- `openai_core.lpk`
-- `openai_python.lpk`
+## 2. Requisitos e Compilação
 
-No Python usado pela aplicação:
+- **Lazarus 3.x** / **Free Pascal 3.2.2** x86_64
+- Pacotes instalados no Lazarus (localizados em `CHATGPT/pacote/packages`):
+  - `openai_core.lpk`
+  - `openai_python.lpk`
+- Ambiente Python com dependências:
+  ```bash
+  pip install ultralytics opencv-python numpy
+  ```
 
+### Compilação via lazbuild:
 ```bash
-pip install ultralytics
+lazbuild --build-mode=Default "P:\maurinsoft\hemacias\lazarus\hemacias_analyzer\hemacias_analyzer.lpi"
 ```
 
-Use um modelo treinado para as classes sanguíneas, por exemplo:
+---
 
+## 3. Estrutura dos Arquivos Pascal Adicionados
+
+| Arquivo | Descrição |
+|---|---|
+| `measurement_types.pas` | Tipos de dados para perfis ópticos, medições celulares individuais, estatísticas de morfometria e dados hematológicos clínicos. |
+| `morphometry.pas` | Algoritmos de cálculo de área (Shoelace), perímetro, diâmetro equivalente, circularidade, eixos, percentis (QuickSelect), desvio padrão e índices de dispersão. |
+| `calibration.pas` | Cálculo de escala teórica e calibração por micrômetro de lâmina de 2 pontos. |
+| `camera_service.pas` | Integração Pascal com `camera_capture.py` para detecção de câmeras conectadas e captura de quadros. |
+| `camera_capture.py` | Utilitário CLI Python para enumeração e captura de câmeras via OpenCV. |
+
+---
+
+## 4. Banco de Dados
+
+Aplicar a migração:
 ```text
-models/blood-seg-v1.pt
+web/migrations/011_optical_profiles_and_measurements.sql
 ```
 
-## Uso
+Ela adiciona:
+- Tabela `optical_profiles`: armazena configurações de microscópios e calibrações de escala.
+- Tabela `cell_measurements`: armazena área, perímetro, diâmetro equivalente, circularidade e status de borda de cada célula analisada.
+- Tabela `sample_hematology`: armazena dados laboratoriais externos (RBC, Hb, Hct, VCM, HCM, CHCM).
+- Colunas de snapshot óptico na tabela `counts`.
 
-1. Abra `hemacias_analyzer.lpi`.
-2. Compile.
-3. Clique em **Carregar lâmina**.
-4. Selecione a fotografia individual obtida do microscópio.
-5. Selecione o modelo `.pt`.
-6. Ajuste confiança e `imgsz`.
-7. Clique em **Analisar**.
-8. Confira a contagem e as marcações.
-9. Use **Emitir resultado** para JSON, CSV ou TXT.
-10. Opcionalmente use **Parecer com IA**.
+---
 
-## Classes
+## 5. Disclaimer Ético e Científico
 
-A aplicação normaliza os nomes comuns:
-
-- `hemacia`, `rbc` → Hemácia
-- `leucocito`, `wbc` → Leucócito
-- `plaqueta`, `platelet` → Plaqueta
-- `artefato`, `artifact` → Artefato
-
-Outras classes do modelo continuam aparecendo com o nome fornecido pelo YOLO.
-
-## Importante
-
-Este aplicativo é para pesquisa, teste e desenvolvimento. O resultado automático não deve ser tratado como contagem laboratorial validada ou diagnóstico clínico sem estudo de validação apropriado.
-
-
-## Integração com o servidor Hemácias
-
-A versão atual também funciona como cliente desktop do gerenciador web.
-
-Fluxo:
-
-```text
-Conectar API
-  -> carregar protocolos
-  -> informar/vincular paciente
-  -> criar ou recuperar amostra
-  -> carregar configuração da amostra
-  -> obter modelo, SHA-256, imgsz e limiares
-  -> carregar lâmina
-  -> analisar
-  -> enviar campo
-```
-
-A aplicação valida o SHA-256 do modelo local quando o protocolo possui um modelo cadastrado. Se o arquivo local for diferente, a análise é bloqueada.
-
-O botão **Enviar campo** grava no servidor:
-
-- campo microscópico;
-- contagem;
-- componentes;
-- confiança média;
-- detecções individuais;
-- bounding boxes;
-- polígonos de segmentação quando disponíveis;
-- imagem original da lâmina;
-- protocolo/modelo;
-- origem `LAZARUS`.
-
-### Configuração
-
-Preencha na aplicação:
-
-```text
-API URL = https://servidor/hemacias/web
-API key = a mesma chave configurada no web/config.php
-```
-
-Depois clique em **Conectar**.
-
-### Banco existente
-
-Além das migrações anteriores, execute:
-
-```sql
-web/migrations/008_lazarus_source.sql
-```
-
-## Segmentação
-
-Quando o modelo Ultralytics retorna máscaras, o `TYOLO` entrega o contorno como pares:
-
-```text
-x:y|x:y|x:y|...
-```
-
-O analisador desenha esse polígono. Quando não há máscara, mantém o fallback para bounding box.
-
-
-## Múltiplos campos e qualidade
-
-O desktop agora suporta uma amostra formada por vários campos microscópicos.
-
-Para cada campo:
-
-1. carregue a imagem;
-2. o aplicativo calcula a qualidade da imagem;
-3. execute a detecção;
-4. envie o campo ao servidor;
-5. clique em **Novo campo** para continuar.
-
-O controle de qualidade usa os mesmos critérios do módulo Python:
-
-- variância do Laplaciano para foco;
-- brilho médio;
-- fração de sombras;
-- fração de realces;
-- coeficiente de variação da iluminação em grade 3×3.
-
-Os estados são:
-
-```text
-ACEITA
-REVISAR
-REJEITADA
-```
-
-Campos rejeitados podem ser enviados ao servidor para manter o histórico, porém não entram na consolidação.
-
-## Relatório da amostra
-
-O botão **Relatório amostra** consulta o endpoint `sample_summary` e apresenta:
-
-- campos totais;
-- campos válidos;
-- rejeitados/excluídos;
-- campos para revisão;
-- mínimo total exigido pelo protocolo;
-- mínimo de campos válidos;
-- média;
-- mediana;
-- mínimo;
-- máximo;
-- desvio padrão amostral por componente.
-
-Quando o relatório da amostra está sendo exibido, **Emitir resultado** gera um arquivo TXT consolidado. Para um campo individual, continua sendo possível emitir JSON, CSV ou TXT.
-
-
-## Revisão humana no Lazarus
-
-Depois da análise do campo, o operador pode revisar visualmente as detecções antes de transformar a imagem em ground truth.
-
-Fluxo:
-
-```text
-Analisar
-  -> clicar sobre uma célula
-  -> Trocar classe ou Excluir
-  -> opcionalmente Adicionar no clique
-  -> Enviar campo
-  -> Salvar revisão no dataset
-```
-
-A célula selecionada é destacada. Em **Adicionar no clique**, o próximo clique cria uma anotação manual com confiança 1,0, que pode ser posteriormente ajustada ou excluída.
-
-O botão **Salvar revisão no dataset** envia o conjunto revisado ao endpoint `annotations_save`. O servidor:
-
-- valida as classes contra `count_item_types`;
-- valida os polígonos e os limites da imagem;
-- substitui as anotações anteriores da imagem;
-- grava as novas anotações como `MANUAL / APROVADA`;
-- registra uma revisão `SAVE_LAZARUS`;
-- marca o item do dataset como `REVISADA`.
-
-A revisão altera o ground truth/dataset; ela não reescreve retroativamente a contagem automática original, preservando a rastreabilidade entre predição e correção humana.
+Este software é destinado a fins de pesquisa, automação e suporte laboratorial.
+O coeficiente de variação do diâmetro celular microscópico calculado sobre imagens 2D não é equivalente e não substitui o índice clínico RDW gerado por contadores hematológicos automatizados. Nenhum resultado automatizado dispensa a validação de um profissional habilitado.

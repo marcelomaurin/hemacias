@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 require __DIR__ . '/lib/bootstrap.php';
 api_authorize();
@@ -876,6 +876,51 @@ try {
             }
         }
 
+        // Grava medicoes individuais de celulas na tabela cell_measurements se fornecidas
+        $measurements = is_array($d['cell_measurements'] ?? null) ? $d['cell_measurements'] : [];
+        if (!empty($measurements)) {
+            try {
+                $stMeas = $pdo->prepare(
+                    'INSERT INTO cell_measurements(
+                        count_id, image_id, component_code, object_index, confidence,
+                        center_x_px, center_y_px, area_px2, perimeter_px, diameter_px,
+                        major_axis_px, minor_axis_px, area_um2, perimeter_um, diameter_um,
+                        major_axis_um, minor_axis_um, circularity, aspect_ratio,
+                        touches_border, measurement_valid, measurement_reason, source
+                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                );
+                foreach ($measurements as $m) {
+                    $stMeas->execute([
+                        $countId,
+                        $imageId ?: 0,
+                        (string)($m['class_code'] ?? 'hemacia'),
+                        (int)($m['object_id'] ?? 0),
+                        (float)($m['confidence'] ?? 1.0),
+                        (float)($m['center_x_px'] ?? 0),
+                        (float)($m['center_y_px'] ?? 0),
+                        (float)($m['area_px2'] ?? 0),
+                        (float)($m['perimeter_px'] ?? 0),
+                        (float)($m['diameter_px'] ?? 0),
+                        isset($m['major_axis_px']) ? (float)$m['major_axis_px'] : null,
+                        isset($m['minor_axis_px']) ? (float)$m['minor_axis_px'] : null,
+                        (float)($m['area_um2'] ?? 0),
+                        (float)($m['perimeter_um'] ?? 0),
+                        (float)($m['diameter_um'] ?? 0),
+                        isset($m['major_axis_um']) ? (float)$m['major_axis_um'] : null,
+                        isset($m['minor_axis_um']) ? (float)$m['minor_axis_um'] : null,
+                        (float)($m['circularity'] ?? 0),
+                        isset($m['aspect_ratio']) ? (float)$m['aspect_ratio'] : null,
+                        !empty($m['touches_border']) ? 1 : 0,
+                        !empty($m['measurement_valid']) ? 1 : 0,
+                        (string)($m['measurement_reason'] ?? ''),
+                        (string)($m['source'] ?? 'AI'),
+                    ]);
+                }
+            } catch (Throwable $e) {
+                // Nao aborta a contagem se a tabela ainda nao tiver sido criada
+            }
+        }
+
         $pdo->commit();
         json_response([
             'ok'=>true,
@@ -885,6 +930,110 @@ try {
             'field_no'=>$fieldNo,
             'field_status'=>$fieldStatus,
         ]);
+    }
+
+    if ($action === 'optical_profiles_list') {
+        try {
+            $rows = db()->query(
+                'SELECT id, name, camera_name, camera_width, camera_height,
+                        objective_magnification, adapter_magnification, sensor_pixel_size_um,
+                        theoretical_pixel_size_um, calibrated_pixel_size_um,
+                        calibration_method, calibration_reference_um, calibration_reference_px,
+                        active, calibrated_at
+                 FROM optical_profiles
+                 WHERE active = 1
+                 ORDER BY name'
+            )->fetchAll();
+            foreach ($rows as &$r) {
+                $r['id'] = (int)$r['id'];
+                $r['camera_width'] = $r['camera_width'] !== null ? (int)$r['camera_width'] : null;
+                $r['camera_height'] = $r['camera_height'] !== null ? (int)$r['camera_height'] : null;
+                $r['objective_magnification'] = (float)$r['objective_magnification'];
+                $r['adapter_magnification'] = (float)$r['adapter_magnification'];
+                $r['sensor_pixel_size_um'] = (float)$r['sensor_pixel_size_um'];
+                $r['theoretical_pixel_size_um'] = (float)$r['theoretical_pixel_size_um'];
+                $r['calibrated_pixel_size_um'] = (float)$r['calibrated_pixel_size_um'];
+                $r['active'] = (int)$r['active'];
+            }
+            unset($r);
+            json_response(['ok' => true, 'profiles' => $rows]);
+        } catch (Throwable $e) {
+            json_response(['ok' => true, 'profiles' => []]);
+        }
+    }
+
+    if ($action === 'optical_profile_save') {
+        $d = json_input();
+        $name = trim((string)($d['name'] ?? ''));
+        if ($name === '') json_response(['ok' => false, 'error' => 'name obrigatorio'], 422);
+
+        $objMag = (float)($d['objective_magnification'] ?? 40.0);
+        $adMag = (float)($d['adapter_magnification'] ?? 1.0);
+        $sensorPixel = (float)($d['sensor_pixel_size_um'] ?? 3.45);
+        $theo = (float)($d['theoretical_pixel_size_um'] ?? ($sensorPixel / ($objMag * $adMag)));
+        $calib = (float)($d['calibrated_pixel_size_um'] ?? $theo);
+        $method = (string)($d['calibration_method'] ?? 'THEORETICAL');
+
+        $pdo = db();
+        $id = (int)($d['id'] ?? 0);
+        if ($id > 0) {
+            $st = $pdo->prepare(
+                'UPDATE optical_profiles SET
+                    name = ?, camera_name = ?, camera_width = ?, camera_height = ?,
+                    objective_magnification = ?, adapter_magnification = ?, sensor_pixel_size_um = ?,
+                    theoretical_pixel_size_um = ?, calibrated_pixel_size_um = ?,
+                    calibration_method = ?, calibration_reference_um = ?, calibration_reference_px = ?,
+                    calibrated_at = NOW()
+                 WHERE id = ?'
+            );
+            $st->execute([
+                $name, $d['camera_name'] ?? null, $d['camera_width'] ?? null, $d['camera_height'] ?? null,
+                $objMag, $adMag, $sensorPixel, $theo, $calib, $method,
+                $d['calibration_reference_um'] ?? null, $d['calibration_reference_px'] ?? null,
+                $id
+            ]);
+            json_response(['ok' => true, 'profile_id' => $id]);
+        } else {
+            $st = $pdo->prepare(
+                'INSERT INTO optical_profiles (
+                    name, camera_name, camera_width, camera_height,
+                    objective_magnification, adapter_magnification, sensor_pixel_size_um,
+                    theoretical_pixel_size_um, calibrated_pixel_size_um,
+                    calibration_method, calibration_reference_um, calibration_reference_px
+                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+            );
+            $st->execute([
+                $name, $d['camera_name'] ?? null, $d['camera_width'] ?? null, $d['camera_height'] ?? null,
+                $objMag, $adMag, $sensorPixel, $theo, $calib, $method,
+                $d['calibration_reference_um'] ?? null, $d['calibration_reference_px'] ?? null
+            ]);
+            json_response(['ok' => true, 'profile_id' => (int)$pdo->lastInsertId()]);
+        }
+    }
+
+    if ($action === 'sample_hematology_save') {
+        $d = json_input();
+        $sampleId = (int)($d['sample_id'] ?? 0);
+        if ($sampleId < 1) json_response(['ok' => false, 'error' => 'sample_id obrigatorio'], 422);
+
+        $rbc = isset($d['rbc']) ? (float)$d['rbc'] : null;
+        $hb = isset($d['hemoglobin']) ? (float)$d['hemoglobin'] : null;
+        $hct = isset($d['hematocrit']) ? (float)$d['hematocrit'] : null;
+        $mcv = isset($d['mcv']) ? (float)$d['mcv'] : null;
+        $mch = isset($d['mch']) ? (float)$d['mch'] : null;
+        $mchc = isset($d['mchc']) ? (float)$d['mchc'] : null;
+
+        $pdo = db();
+        try {
+            $st = $pdo->prepare(
+                'INSERT INTO sample_hematology(sample_id, rbc, hemoglobin, hematocrit, mcv, mch, mchc, source)
+                 VALUES(?,?,?,?,?,?,?,?)'
+            );
+            $st->execute([$sampleId, $rbc, $hb, $hct, $mcv, $mch, $mchc, (string)($d['source'] ?? 'MANUAL')]);
+            json_response(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
+        } catch (Throwable $e) {
+            json_response(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     if ($action === 'patient_search') {

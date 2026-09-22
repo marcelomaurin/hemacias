@@ -6,7 +6,8 @@ interface
 
 uses
   Classes, SysUtils, Math, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
-  Grids, ComCtrls, fpjson, pythonconnector, yolodetect, chatgpt, hemacias_api;
+  Grids, ComCtrls, fpjson, pythonconnector, yolodetect, chatgpt, hemacias_api,
+  measurement_types, morphometry, calibration, camera_service, aicapturesource, aicamera_backend;
 
 type
   TClassSummary = record
@@ -41,13 +42,42 @@ type
     FTop: TPanel;
     FApiPanel: TPanel;
     FConfig: TPanel;
+    FOpticsPanel: TPanel;
     FRight: TPanel;
     FBottom: TPanel;
     FImage: TImage;
-    FGrid: TStringGrid;
-    FMemo: TMemo;
     FStatus: TStatusBar;
 
+    // Abas do painel direito
+    FPageControl: TPageControl;
+    FTabCounts: TTabSheet;
+    FTabMorpho: TTabSheet;
+    FTabLab: TTabSheet;
+    FTabReport: TTabSheet;
+
+    // Aba 1: Contagem & Revisão
+    FGrid: TStringGrid;
+    FCbReviewClass: TComboBox;
+    FBtnReviewClass: TButton;
+    FBtnReviewDelete: TButton;
+    FBtnReviewAdd: TButton;
+    FBtnReviewSave: TButton;
+
+    // Aba 2: Morfometria Celular
+    FMemoMorphoSummary: TMemo;
+    FGridCells: TStringGrid;
+
+    // Aba 3: Dados Clínicos Laboratoriais
+    FEdRBC: TEdit;
+    FEdHb: TEdit;
+    FEdHct: TEdit;
+    FBtnCalcIndices: TButton;
+    FMemoIndices: TMemo;
+
+    // Aba 4: Relatório Consolidado
+    FMemo: TMemo;
+
+    // Botões superiores de ação
     FBtnLoad: TButton;
     FBtnAnalyze: TButton;
     FBtnSend: TButton;
@@ -55,32 +85,47 @@ type
     FBtnSummary: TButton;
     FBtnExport: TButton;
     FBtnAIReport: TButton;
-    FBtnModel: TButton;
     FBtnClear: TButton;
-    FBtnReviewDelete: TButton;
-    FBtnReviewClass: TButton;
-    FBtnReviewAdd: TButton;
-    FBtnReviewSave: TButton;
-    FBtnConnect: TButton;
-    FBtnBindSample: TButton;
 
+    // Painel de Configuração YOLO
     FEdImage: TEdit;
     FEdModel: TEdit;
+    FBtnModel: TButton;
     FEdConfidence: TEdit;
     FEdImageSize: TEdit;
     FEdDevice: TEdit;
+
+    // Painel Óptico, Calibração e Câmera
+    FCbSource: TComboBox;
+    FCbCameras: TComboBox;
+    FBtnRefreshCameras: TButton;
+    FBtnCaptureCamera: TButton;
+    FCbObjective: TComboBox;
+    FEdAdapterMag: TEdit;
+    FEdSensorPixel: TEdit;
+    FEdScaleUmPerPx: TEdit;
+    FBtnCalibrate: TButton;
+    FChkShowContours: TCheckBox;
+    FChkShowIDs: TCheckBox;
+    FChkShowDiameters: TCheckBox;
+    FChkShowScaleBar: TCheckBox;
+
+    // Painel da API
     FEdApiURL: TEdit;
     FEdApiKey: TEdit;
+    FBtnConnect: TButton;
     FEdPatientName: TEdit;
     FEdPatientExternal: TEdit;
     FEdSampleCode: TEdit;
     FCbProtocol: TComboBox;
-    FCbReviewClass: TComboBox;
+    FBtnBindSample: TButton;
 
+    // Diálogos
     FOpenImage: TOpenDialog;
     FOpenModel: TOpenDialog;
     FSaveReport: TSaveDialog;
 
+    // Estado da Análise
     FObjects: TYoloObjectArray;
     FSummaries: TClassSummaryArray;
     FProtocolItems: TProtocolItemArray;
@@ -105,6 +150,20 @@ type
     FSelectedObject: Integer;
     FAddReviewMode: Boolean;
 
+    // Estado Óptico e Calibração
+    FOpticalProfile: TOpticalProfile;
+    FActiveScaleUmPerPx: Double;
+    FCalibrating: Boolean;
+    FCalibPointA: TPoint;
+    FCalibPointB: TPoint;
+    FCalibStep: Integer;
+
+    // Estado de Morfometria, Laboratório e Câmeras
+    FCellMeasurements: TCellMeasurementArray;
+    FMorphoStats: TMorphometryStatistics;
+    FLabData: THematologyLabData;
+    FCameras: TCameraDeviceArray;
+
     procedure BuildUI;
     procedure InitializeAI;
     procedure SetStatus(const AText: string);
@@ -126,6 +185,16 @@ type
     procedure ImageMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ConnectClick(Sender: TObject);
     procedure BindSampleClick(Sender: TObject);
+
+    // Novos Handlers
+    procedure SourceChange(Sender: TObject);
+    procedure ObjectiveChange(Sender: TObject);
+    procedure UpdateTheoreticalScale;
+    procedure RefreshCamerasClick(Sender: TObject);
+    procedure CaptureCameraClick(Sender: TObject);
+    procedure CalibrateClick(Sender: TObject);
+    procedure OverlayCheckboxChange(Sender: TObject);
+    procedure CalcIndicesClick(Sender: TObject);
 
     function ConfidenceValue: Double;
     function ImageSizeValue: Integer;
@@ -152,6 +221,11 @@ type
     function FindObjectAt(const IX, IY: Integer): Integer;
     procedure DeleteObject(AIndex: Integer);
     procedure AddManualObject(const IX, IY: Integer);
+
+    // Métodos de Morfometria
+    procedure RecalculateMorphometry;
+    procedure UpdateMorphometryUI;
+    procedure UpdateCellGrid;
 
     function FindSummary(const ACode: string): Integer;
     procedure AddSummary(const ACode: string; AConfidence: Double);
@@ -259,7 +333,7 @@ end;
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
-  Caption := 'Analisador de Lâminas - Lazarus AI Suite';
+  Caption := 'Analisador de Lâminas - Hemácias (AI Suite + Morfometria)';
   FConfigJSON := nil;
   FApi := nil;
   FPatientID := 0;
@@ -272,6 +346,14 @@ begin
   FLastImageID := 0;
   FSelectedObject := -1;
   FAddReviewMode := False;
+
+  // Inicializa perfil óptico padrão: 40x, adaptador 1.0x, sensor 3.45 um -> 0.08625 um/px
+  FOpticalProfile := CreateDefaultProfile('Padrão 40x', 40.0, 1.0, 3.45, 0.0);
+  FActiveScaleUmPerPx := FOpticalProfile.CalibratedPixelSizeUM;
+  FCalibrating := False;
+  FCalibStep := 0;
+  FillChar(FLabData, SizeOf(FLabData), 0);
+
   BuildUI;
   InitializeAI;
 end;
@@ -288,219 +370,419 @@ procedure TfrmMain.BuildUI;
 var
   L: TLabel;
 begin
+  // --- Painel Superior de Ações ---
   FTop := TPanel.Create(Self);
   FTop.Parent := Self;
   FTop.Align := alTop;
-  FTop.Height := 54;
+  FTop.Height := 48;
   FTop.BevelOuter := bvNone;
 
   FBtnLoad := TButton.Create(Self);
   FBtnLoad.Parent := FTop;
-  FBtnLoad.SetBounds(10, 10, 120, 32);
+  FBtnLoad.SetBounds(8, 8, 115, 32);
   FBtnLoad.Caption := 'Carregar lâmina';
   FBtnLoad.OnClick := @LoadImageClick;
 
   FBtnAnalyze := TButton.Create(Self);
   FBtnAnalyze.Parent := FTop;
-  FBtnAnalyze.SetBounds(140, 10, 95, 32);
+  FBtnAnalyze.SetBounds(130, 8, 95, 32);
   FBtnAnalyze.Caption := 'Analisar';
   FBtnAnalyze.OnClick := @AnalyzeClick;
 
   FBtnSend := TButton.Create(Self);
   FBtnSend.Parent := FTop;
-  FBtnSend.SetBounds(245, 10, 105, 32);
+  FBtnSend.SetBounds(232, 8, 105, 32);
   FBtnSend.Caption := 'Enviar campo';
   FBtnSend.OnClick := @SendClick;
   FBtnSend.Enabled := False;
 
   FBtnNewField := TButton.Create(Self);
   FBtnNewField.Parent := FTop;
-  FBtnNewField.SetBounds(360, 10, 95, 32);
+  FBtnNewField.SetBounds(344, 8, 95, 32);
   FBtnNewField.Caption := 'Novo campo';
   FBtnNewField.OnClick := @NewFieldClick;
   FBtnNewField.Enabled := False;
 
   FBtnSummary := TButton.Create(Self);
   FBtnSummary.Parent := FTop;
-  FBtnSummary.SetBounds(465, 10, 105, 32);
+  FBtnSummary.SetBounds(446, 8, 110, 32);
   FBtnSummary.Caption := 'Relatório amostra';
   FBtnSummary.OnClick := @SummaryClick;
   FBtnSummary.Enabled := False;
 
   FBtnExport := TButton.Create(Self);
   FBtnExport.Parent := FTop;
-  FBtnExport.SetBounds(580, 10, 115, 32);
+  FBtnExport.SetBounds(563, 8, 115, 32);
   FBtnExport.Caption := 'Emitir resultado';
   FBtnExport.OnClick := @ExportClick;
   FBtnExport.Enabled := False;
 
   FBtnAIReport := TButton.Create(Self);
   FBtnAIReport.Parent := FTop;
-  FBtnAIReport.SetBounds(705, 10, 125, 32);
+  FBtnAIReport.SetBounds(685, 8, 125, 32);
   FBtnAIReport.Caption := 'Parecer com IA';
   FBtnAIReport.OnClick := @AIReportClick;
   FBtnAIReport.Enabled := False;
 
   FBtnClear := TButton.Create(Self);
   FBtnClear.Parent := FTop;
-  FBtnClear.SetBounds(840, 10, 80, 32);
+  FBtnClear.SetBounds(817, 8, 80, 32);
   FBtnClear.Caption := 'Limpar';
   FBtnClear.OnClick := @ClearClick;
 
+  // --- Painel da API Web ---
   FApiPanel := TPanel.Create(Self);
   FApiPanel.Parent := Self;
   FApiPanel.Align := alTop;
-  FApiPanel.Height := 122;
+  FApiPanel.Height := 115;
   FApiPanel.BevelOuter := bvLowered;
 
   L := TLabel.Create(Self); L.Parent := FApiPanel;
-  L.SetBounds(10, 8, 55, 20); L.Caption := 'API URL:';
+  L.SetBounds(8, 8, 55, 20); L.Caption := 'API URL:';
   FEdApiURL := TEdit.Create(Self); FEdApiURL.Parent := FApiPanel;
-  FEdApiURL.SetBounds(70, 5, 365, 27);
+  FEdApiURL.SetBounds(65, 5, 370, 27);
   FEdApiURL.Text := '';
 
   L := TLabel.Create(Self); L.Parent := FApiPanel;
-  L.SetBounds(450, 8, 55, 20); L.Caption := 'API key:';
+  L.SetBounds(445, 8, 55, 20); L.Caption := 'API key:';
   FEdApiKey := TEdit.Create(Self); FEdApiKey.Parent := FApiPanel;
-  FEdApiKey.SetBounds(510, 5, 255, 27);
+  FEdApiKey.SetBounds(505, 5, 255, 27);
   FEdApiKey.PasswordChar := '*';
 
   FBtnConnect := TButton.Create(Self); FBtnConnect.Parent := FApiPanel;
-  FBtnConnect.SetBounds(775, 4, 100, 30);
+  FBtnConnect.SetBounds(770, 4, 100, 30);
   FBtnConnect.Caption := 'Conectar';
   FBtnConnect.OnClick := @ConnectClick;
 
   L := TLabel.Create(Self); L.Parent := FApiPanel;
-  L.SetBounds(10, 47, 60, 20); L.Caption := 'Paciente:';
+  L.SetBounds(8, 44, 55, 20); L.Caption := 'Paciente:';
   FEdPatientName := TEdit.Create(Self); FEdPatientName.Parent := FApiPanel;
-  FEdPatientName.SetBounds(70, 43, 250, 27);
+  FEdPatientName.SetBounds(65, 41, 240, 27);
 
   L := TLabel.Create(Self); L.Parent := FApiPanel;
-  L.SetBounds(330, 47, 65, 20); L.Caption := 'ID externo:';
+  L.SetBounds(315, 44, 65, 20); L.Caption := 'ID externo:';
   FEdPatientExternal := TEdit.Create(Self); FEdPatientExternal.Parent := FApiPanel;
-  FEdPatientExternal.SetBounds(400, 43, 150, 27);
+  FEdPatientExternal.SetBounds(385, 41, 140, 27);
 
   L := TLabel.Create(Self); L.Parent := FApiPanel;
-  L.SetBounds(565, 47, 60, 20); L.Caption := 'Amostra:';
+  L.SetBounds(535, 44, 55, 20); L.Caption := 'Amostra:';
   FEdSampleCode := TEdit.Create(Self); FEdSampleCode.Parent := FApiPanel;
-  FEdSampleCode.SetBounds(625, 43, 140, 27);
+  FEdSampleCode.SetBounds(595, 41, 130, 27);
 
   L := TLabel.Create(Self); L.Parent := FApiPanel;
-  L.SetBounds(10, 85, 60, 20); L.Caption := 'Protocolo:';
+  L.SetBounds(8, 78, 60, 20); L.Caption := 'Protocolo:';
   FCbProtocol := TComboBox.Create(Self); FCbProtocol.Parent := FApiPanel;
-  FCbProtocol.SetBounds(70, 81, 300, 27);
+  FCbProtocol.SetBounds(68, 75, 290, 27);
   FCbProtocol.Style := csDropDownList;
 
   FBtnBindSample := TButton.Create(Self); FBtnBindSample.Parent := FApiPanel;
-  FBtnBindSample.SetBounds(385, 79, 165, 31);
+  FBtnBindSample.SetBounds(365, 73, 175, 31);
   FBtnBindSample.Caption := 'Vincular paciente/amostra';
   FBtnBindSample.OnClick := @BindSampleClick;
   FBtnBindSample.Enabled := False;
 
+  // --- Painel de Configuração YOLO ---
   FConfig := TPanel.Create(Self);
   FConfig.Parent := Self;
   FConfig.Align := alTop;
-  FConfig.Height := 88;
+  FConfig.Height := 75;
   FConfig.BevelOuter := bvLowered;
 
   L := TLabel.Create(Self); L.Parent := FConfig;
-  L.SetBounds(10, 8, 70, 20); L.Caption := 'Imagem:';
+  L.SetBounds(8, 8, 55, 20); L.Caption := 'Imagem:';
   FEdImage := TEdit.Create(Self); FEdImage.Parent := FConfig;
-  FEdImage.SetBounds(78, 5, 510, 27); FEdImage.ReadOnly := True;
+  FEdImage.SetBounds(65, 5, 520, 27); FEdImage.ReadOnly := True;
 
   L := TLabel.Create(Self); L.Parent := FConfig;
-  L.SetBounds(10, 45, 60, 20); L.Caption := 'Modelo:';
+  L.SetBounds(8, 42, 50, 20); L.Caption := 'Modelo:';
   FEdModel := TEdit.Create(Self); FEdModel.Parent := FConfig;
-  FEdModel.SetBounds(78, 42, 420, 27);
+  FEdModel.SetBounds(65, 39, 430, 27);
   FEdModel.Text := 'models' + PathDelim + 'blood-seg-v1.pt';
 
   FBtnModel := TButton.Create(Self); FBtnModel.Parent := FConfig;
-  FBtnModel.SetBounds(505, 40, 83, 30);
+  FBtnModel.SetBounds(502, 37, 83, 30);
   FBtnModel.Caption := 'Selecionar'; FBtnModel.OnClick := @SelectModelClick;
 
   L := TLabel.Create(Self); L.Parent := FConfig;
-  L.SetBounds(610, 8, 73, 20); L.Caption := 'Confiança:';
+  L.SetBounds(595, 8, 70, 20); L.Caption := 'Confiança:';
   FEdConfidence := TEdit.Create(Self); FEdConfidence.Parent := FConfig;
-  FEdConfidence.SetBounds(685, 5, 70, 27); FEdConfidence.Text := '0.25';
+  FEdConfidence.SetBounds(665, 5, 60, 27); FEdConfidence.Text := '0.25';
 
   L := TLabel.Create(Self); L.Parent := FConfig;
-  L.SetBounds(775, 8, 47, 20); L.Caption := 'imgsz:';
+  L.SetBounds(735, 8, 45, 20); L.Caption := 'imgsz:';
   FEdImageSize := TEdit.Create(Self); FEdImageSize.Parent := FConfig;
-  FEdImageSize.SetBounds(825, 5, 70, 27); FEdImageSize.Text := '1024';
+  FEdImageSize.SetBounds(782, 5, 65, 27); FEdImageSize.Text := '1024';
 
   L := TLabel.Create(Self); L.Parent := FConfig;
-  L.SetBounds(610, 45, 70, 20); L.Caption := 'Device:';
+  L.SetBounds(595, 42, 50, 20); L.Caption := 'Device:';
   FEdDevice := TEdit.Create(Self); FEdDevice.Parent := FConfig;
-  FEdDevice.SetBounds(685, 42, 210, 27);
+  FEdDevice.SetBounds(665, 39, 182, 27);
   FEdDevice.Hint := 'Vazio = automático; exemplos: 0, cpu';
   FEdDevice.ShowHint := True;
 
+  // --- Painel Óptico, Calibração e Câmera ---
+  FOpticsPanel := TPanel.Create(Self);
+  FOpticsPanel.Parent := Self;
+  FOpticsPanel.Align := alTop;
+  FOpticsPanel.Height := 75;
+  FOpticsPanel.BevelOuter := bvLowered;
+
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(8, 8, 40, 20); L.Caption := 'Fonte:';
+  FCbSource := TComboBox.Create(Self); FCbSource.Parent := FOpticsPanel;
+  FCbSource.SetBounds(50, 5, 85, 27);
+  FCbSource.Style := csDropDownList;
+  FCbSource.Items.Add('Arquivo');
+  FCbSource.Items.Add('Câmera');
+  FCbSource.ItemIndex := 0;
+  FCbSource.OnChange := @SourceChange;
+
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(143, 8, 50, 20); L.Caption := 'Câmera:';
+  FCbCameras := TComboBox.Create(Self); FCbCameras.Parent := FOpticsPanel;
+  FCbCameras.SetBounds(195, 5, 145, 27);
+  FCbCameras.Style := csDropDownList;
+  FCbCameras.Enabled := False;
+
+  FBtnRefreshCameras := TButton.Create(Self); FBtnRefreshCameras.Parent := FOpticsPanel;
+  FBtnRefreshCameras.SetBounds(345, 4, 75, 29);
+  FBtnRefreshCameras.Caption := 'Atualizar';
+  FBtnRefreshCameras.OnClick := @RefreshCamerasClick;
+  FBtnRefreshCameras.Enabled := False;
+
+  FBtnCaptureCamera := TButton.Create(Self); FBtnCaptureCamera.Parent := FOpticsPanel;
+  FBtnCaptureCamera.SetBounds(425, 4, 75, 29);
+  FBtnCaptureCamera.Caption := 'Capturar';
+  FBtnCaptureCamera.OnClick := @CaptureCameraClick;
+  FBtnCaptureCamera.Enabled := False;
+
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(510, 8, 55, 20); L.Caption := 'Objetiva:';
+  FCbObjective := TComboBox.Create(Self); FCbObjective.Parent := FOpticsPanel;
+  FCbObjective.SetBounds(568, 5, 105, 27);
+  FCbObjective.Style := csDropDownList;
+  FCbObjective.Items.Add('10x');
+  FCbObjective.Items.Add('20x');
+  FCbObjective.Items.Add('40x');
+  FCbObjective.Items.Add('100x');
+  FCbObjective.Items.Add('Personalizado');
+  FCbObjective.ItemIndex := 2; // 40x default
+  FCbObjective.OnChange := @ObjectiveChange;
+
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(683, 8, 85, 20); L.Caption := 'Escala (µm/px):';
+  FEdScaleUmPerPx := TEdit.Create(Self); FEdScaleUmPerPx.Parent := FOpticsPanel;
+  FEdScaleUmPerPx.SetBounds(773, 5, 75, 27);
+  FEdScaleUmPerPx.Text := FormatFloat('0.00000', FActiveScaleUmPerPx);
+
+  FBtnCalibrate := TButton.Create(Self); FBtnCalibrate.Parent := FOpticsPanel;
+  FBtnCalibrate.SetBounds(855, 4, 130, 29);
+  FBtnCalibrate.Caption := 'Calibrar por régua';
+  FBtnCalibrate.OnClick := @CalibrateClick;
+
+  // Linha 2 do painel óptico
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(8, 43, 65, 20); L.Caption := 'Adaptador:';
+  FEdAdapterMag := TEdit.Create(Self); FEdAdapterMag.Parent := FOpticsPanel;
+  FEdAdapterMag.SetBounds(75, 40, 45, 27);
+  FEdAdapterMag.Text := '1.0';
+
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(128, 43, 100, 20); L.Caption := 'Pixel Sensor (µm):';
+  FEdSensorPixel := TEdit.Create(Self); FEdSensorPixel.Parent := FOpticsPanel;
+  FEdSensorPixel.SetBounds(232, 40, 50, 27);
+  FEdSensorPixel.Text := '3.45';
+
+  FChkShowContours := TCheckBox.Create(Self); FChkShowContours.Parent := FOpticsPanel;
+  FChkShowContours.SetBounds(295, 42, 85, 23);
+  FChkShowContours.Caption := 'Contornos';
+  FChkShowContours.Checked := True;
+  FChkShowContours.OnChange := @OverlayCheckboxChange;
+
+  FChkShowIDs := TCheckBox.Create(Self); FChkShowIDs.Parent := FOpticsPanel;
+  FChkShowIDs.SetBounds(385, 42, 60, 23);
+  FChkShowIDs.Caption := 'IDs';
+  FChkShowIDs.Checked := True;
+  FChkShowIDs.OnChange := @OverlayCheckboxChange;
+
+  FChkShowDiameters := TCheckBox.Create(Self); FChkShowDiameters.Parent := FOpticsPanel;
+  FChkShowDiameters.SetBounds(450, 42, 85, 23);
+  FChkShowDiameters.Caption := 'Diâmetros';
+  FChkShowDiameters.Checked := True;
+  FChkShowDiameters.OnChange := @OverlayCheckboxChange;
+
+  FChkShowScaleBar := TCheckBox.Create(Self); FChkShowScaleBar.Parent := FOpticsPanel;
+  FChkShowScaleBar.SetBounds(545, 42, 115, 23);
+  FChkShowScaleBar.Caption := 'Barra de escala';
+  FChkShowScaleBar.Checked := True;
+  FChkShowScaleBar.OnChange := @OverlayCheckboxChange;
+
+  // --- Painel Direito com Abas ---
   FRight := TPanel.Create(Self);
   FRight.Parent := Self;
   FRight.Align := alRight;
-  FRight.Width := 385;
+  FRight.Width := 460;
   FRight.Caption := '';
   FRight.BevelOuter := bvLowered;
 
-  L := TLabel.Create(Self); L.Parent := FRight;
-  L.SetBounds(10, 10, 260, 22); L.Caption := 'Resultado da contagem';
-  L.Font.Style := [fsBold]; L.Font.Size := 12;
+  FPageControl := TPageControl.Create(Self);
+  FPageControl.Parent := FRight;
+  FPageControl.Align := alClient;
 
-  FGrid := TStringGrid.Create(Self); FGrid.Parent := FRight;
-  FGrid.SetBounds(8, 40, 368, 250);
+  // Aba 1: Contagem & Revisão
+  FTabCounts := TTabSheet.Create(Self);
+  FTabCounts.PageControl := FPageControl;
+  FTabCounts.Caption := 'Contagem & Revisão';
+
+  L := TLabel.Create(Self); L.Parent := FTabCounts;
+  L.SetBounds(8, 8, 250, 22); L.Caption := 'Resultado da contagem';
+  L.Font.Style := [fsBold]; L.Font.Size := 11;
+
+  FGrid := TStringGrid.Create(Self); FGrid.Parent := FTabCounts;
+  FGrid.SetBounds(8, 33, 435, 220);
   FGrid.ColCount := 3; FGrid.RowCount := 2; FGrid.FixedRows := 1;
   FGrid.Cells[0,0] := 'Componente';
   FGrid.Cells[1,0] := 'Quantidade';
   FGrid.Cells[2,0] := 'Conf. média';
-  FGrid.ColWidths[0] := 160; FGrid.ColWidths[1] := 80; FGrid.ColWidths[2] := 100;
+  FGrid.ColWidths[0] := 180; FGrid.ColWidths[1] := 95; FGrid.ColWidths[2] := 115;
   FGrid.Options := FGrid.Options - [goEditing];
 
-  L := TLabel.Create(Self); L.Parent := FRight;
-  L.SetBounds(10, 302, 170, 20); L.Caption := 'Revisão humana';
+  L := TLabel.Create(Self); L.Parent := FTabCounts;
+  L.SetBounds(8, 260, 200, 20); L.Caption := 'Revisão humana';
   L.Font.Style := [fsBold];
 
   FCbReviewClass := TComboBox.Create(Self);
-  FCbReviewClass.Parent := FRight;
-  FCbReviewClass.SetBounds(8, 324, 150, 27);
+  FCbReviewClass.Parent := FTabCounts;
+  FCbReviewClass.SetBounds(8, 283, 160, 27);
   FCbReviewClass.Style := csDropDownList;
 
   FBtnReviewClass := TButton.Create(Self);
-  FBtnReviewClass.Parent := FRight;
-  FBtnReviewClass.SetBounds(164, 323, 98, 29);
+  FBtnReviewClass.Parent := FTabCounts;
+  FBtnReviewClass.SetBounds(175, 282, 115, 29);
   FBtnReviewClass.Caption := 'Trocar classe';
   FBtnReviewClass.OnClick := @ReviewClassClick;
 
   FBtnReviewDelete := TButton.Create(Self);
-  FBtnReviewDelete.Parent := FRight;
-  FBtnReviewDelete.SetBounds(268, 323, 106, 29);
+  FBtnReviewDelete.Parent := FTabCounts;
+  FBtnReviewDelete.SetBounds(298, 282, 105, 29);
   FBtnReviewDelete.Caption := 'Excluir';
   FBtnReviewDelete.OnClick := @ReviewDeleteClick;
 
   FBtnReviewAdd := TButton.Create(Self);
-  FBtnReviewAdd.Parent := FRight;
-  FBtnReviewAdd.SetBounds(8, 357, 150, 29);
+  FBtnReviewAdd.Parent := FTabCounts;
+  FBtnReviewAdd.SetBounds(8, 318, 160, 29);
   FBtnReviewAdd.Caption := 'Adicionar no clique';
   FBtnReviewAdd.OnClick := @ReviewAddClick;
 
   FBtnReviewSave := TButton.Create(Self);
-  FBtnReviewSave.Parent := FRight;
-  FBtnReviewSave.SetBounds(164, 357, 210, 29);
+  FBtnReviewSave.Parent := FTabCounts;
+  FBtnReviewSave.SetBounds(175, 318, 228, 29);
   FBtnReviewSave.Caption := 'Salvar revisão no dataset';
   FBtnReviewSave.OnClick := @ReviewSaveClick;
   FBtnReviewSave.Enabled := False;
 
-  L := TLabel.Create(Self); L.Parent := FRight;
-  L.SetBounds(10, 397, 300, 20); L.Caption := 'Relatório / observações';
+  // Aba 2: Morfometria Celular
+  FTabMorpho := TTabSheet.Create(Self);
+  FTabMorpho.PageControl := FPageControl;
+  FTabMorpho.Caption := 'Morfometria';
 
-  FMemo := TMemo.Create(Self); FMemo.Parent := FRight;
-  FMemo.SetBounds(8, 420, 368, 210);
+  L := TLabel.Create(Self); L.Parent := FTabMorpho;
+  L.SetBounds(8, 8, 350, 20); L.Caption := 'Estatísticas Populacionais (Tamanho e Forma)';
+  L.Font.Style := [fsBold];
+
+  FMemoMorphoSummary := TMemo.Create(Self);
+  FMemoMorphoSummary.Parent := FTabMorpho;
+  FMemoMorphoSummary.SetBounds(8, 30, 435, 220);
+  FMemoMorphoSummary.ReadOnly := True;
+  FMemoMorphoSummary.ScrollBars := ssAutoVertical;
+  FMemoMorphoSummary.Lines.Text := 'Execute a análise para calcular a morfometria celular.';
+
+  L := TLabel.Create(Self); L.Parent := FTabMorpho;
+  L.SetBounds(8, 255, 300, 20); L.Caption := 'Medições Individuais por Célula:';
+  L.Font.Style := [fsBold];
+
+  FGridCells := TStringGrid.Create(Self);
+  FGridCells.Parent := FTabMorpho;
+  FGridCells.SetBounds(8, 278, 435, 250);
+  FGridCells.ColCount := 7;
+  FGridCells.RowCount := 2;
+  FGridCells.FixedRows := 1;
+  FGridCells.Cells[0,0] := '#';
+  FGridCells.Cells[1,0] := 'Classe';
+  FGridCells.Cells[2,0] := 'Área (µm²)';
+  FGridCells.Cells[3,0] := 'Perím (µm)';
+  FGridCells.Cells[4,0] := 'Diâm Eq (µm)';
+  FGridCells.Cells[5,0] := 'Circ.';
+  FGridCells.Cells[6,0] := 'Borda?';
+  FGridCells.ColWidths[0] := 35;
+  FGridCells.ColWidths[1] := 75;
+  FGridCells.ColWidths[2] := 70;
+  FGridCells.ColWidths[3] := 65;
+  FGridCells.ColWidths[4] := 75;
+  FGridCells.ColWidths[5] := 50;
+  FGridCells.ColWidths[6] := 50;
+  FGridCells.Options := FGridCells.Options - [goEditing];
+
+  // Aba 3: Dados Clínicos Laboratoriais
+  FTabLab := TTabSheet.Create(Self);
+  FTabLab.PageControl := FPageControl;
+  FTabLab.Caption := 'Dados Clínicos';
+
+  L := TLabel.Create(Self); L.Parent := FTabLab;
+  L.SetBounds(8, 8, 420, 20); L.Caption := 'Dados do Contador Hematológico Externo';
+  L.Font.Style := [fsBold];
+
+  L := TLabel.Create(Self); L.Parent := FTabLab;
+  L.SetBounds(8, 38, 210, 20); L.Caption := 'Hemácias (RBC - 10^6 / µL):';
+  FEdRBC := TEdit.Create(Self); FEdRBC.Parent := FTabLab;
+  FEdRBC.SetBounds(225, 35, 90, 27);
+  FEdRBC.Text := '';
+
+  L := TLabel.Create(Self); L.Parent := FTabLab;
+  L.SetBounds(8, 73, 210, 20); L.Caption := 'Hemoglobina (Hb - g/dL):';
+  FEdHb := TEdit.Create(Self); FEdHb.Parent := FTabLab;
+  FEdHb.SetBounds(225, 70, 90, 27);
+  FEdHb.Text := '';
+
+  L := TLabel.Create(Self); L.Parent := FTabLab;
+  L.SetBounds(8, 108, 210, 20); L.Caption := 'Hematócrito (Hct - %):';
+  FEdHct := TEdit.Create(Self); FEdHct.Parent := FTabLab;
+  FEdHct.SetBounds(225, 105, 90, 27);
+  FEdHct.Text := '';
+
+  FBtnCalcIndices := TButton.Create(Self);
+  FBtnCalcIndices.Parent := FTabLab;
+  FBtnCalcIndices.SetBounds(8, 142, 210, 32);
+  FBtnCalcIndices.Caption := 'Calcular Índices Clínicos';
+  FBtnCalcIndices.OnClick := @CalcIndicesClick;
+
+  FMemoIndices := TMemo.Create(Self);
+  FMemoIndices.Parent := FTabLab;
+  FMemoIndices.SetBounds(8, 182, 435, 340);
+  FMemoIndices.ReadOnly := True;
+  FMemoIndices.ScrollBars := ssAutoVertical;
+  FMemoIndices.Lines.Text := 'Informe RBC, Hb e Hct do contador para calcular VCM, HCM e CHCM.';
+
+  // Aba 4: Relatório Consolidado
+  FTabReport := TTabSheet.Create(Self);
+  FTabReport.PageControl := FPageControl;
+  FTabReport.Caption := 'Relatório';
+
+  L := TLabel.Create(Self); L.Parent := FTabReport;
+  L.SetBounds(8, 8, 300, 20); L.Caption := 'Relatório Técnico e Parecer da IA';
+  L.Font.Style := [fsBold];
+
+  FMemo := TMemo.Create(Self); FMemo.Parent := FTabReport;
+  FMemo.SetBounds(8, 32, 435, 490);
   FMemo.ScrollBars := ssAutoVertical; FMemo.WordWrap := True;
 
+  // --- Painel Inferior (Status Bar) ---
   FBottom := TPanel.Create(Self); FBottom.Parent := Self;
   FBottom.Align := alBottom; FBottom.Height := 28; FBottom.BevelOuter := bvNone;
   FStatus := TStatusBar.Create(Self); FStatus.Parent := FBottom;
   FStatus.Align := alClient; FStatus.SimplePanel := True;
 
+  // --- Imagem Microscópica Central ---
   FImage := TImage.Create(Self); FImage.Parent := Self;
   FImage.Align := alClient; FImage.Center := True;
   FImage.Proportional := True; FImage.Stretch := True;
@@ -568,6 +850,322 @@ procedure TfrmMain.Log(const AText: string);
 begin
   FMemo.Lines.Add('[' + FormatDateTime('hh:nn:ss', Now) + '] ' + AText);
 end;
+
+procedure TfrmMain.SourceChange(Sender: TObject);
+begin
+  if FCbSource.ItemIndex = 1 then
+  begin
+    // Câmera
+    FCbCameras.Enabled := True;
+    FBtnRefreshCameras.Enabled := True;
+    FBtnCaptureCamera.Enabled := True;
+    RefreshCamerasClick(nil);
+    SetStatus('Modo Câmera selecionado. Escolha a câmera e clique em Capturar.');
+  end
+  else
+  begin
+    // Arquivo
+    FCbCameras.Enabled := False;
+    FBtnRefreshCameras.Enabled := False;
+    FBtnCaptureCamera.Enabled := False;
+    SetStatus('Modo Arquivo selecionado. Carregue uma imagem do disco.');
+  end;
+end;
+
+procedure TfrmMain.ObjectiveChange(Sender: TObject);
+var
+  Mag: Double;
+begin
+  case FCbObjective.ItemIndex of
+    0: Mag := 10.0;
+    1: Mag := 20.0;
+    2: Mag := 40.0;
+    3: Mag := 100.0;
+  else
+    Mag := FOpticalProfile.ObjectiveMagnification;
+  end;
+  FOpticalProfile.ObjectiveMagnification := Mag;
+  UpdateTheoreticalScale;
+end;
+
+procedure TfrmMain.UpdateTheoreticalScale;
+var
+  FS: TFormatSettings;
+  ObjMag, AdaptMag, PixelUM: Double;
+begin
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+  ObjMag := FOpticalProfile.ObjectiveMagnification;
+  AdaptMag := StrToFloatDef(StringReplace(Trim(FEdAdapterMag.Text), ',', '.', [rfReplaceAll]), 1.0, FS);
+  PixelUM := StrToFloatDef(StringReplace(Trim(FEdSensorPixel.Text), ',', '.', [rfReplaceAll]), 3.45, FS);
+
+  FOpticalProfile.AdapterMagnification := AdaptMag;
+  FOpticalProfile.SensorPixelSizeUM := PixelUM;
+  FOpticalProfile.TheoreticalPixelSizeUM := CalculateTheoreticalScale(ObjMag, AdaptMag, PixelUM);
+
+  // Se não foi calibrado por micrômetro, usa teórico
+  if FOpticalProfile.CalibrationMethod <> 'STAGE_MICROMETER' then
+  begin
+    FOpticalProfile.CalibratedPixelSizeUM := FOpticalProfile.TheoreticalPixelSizeUM;
+    FActiveScaleUmPerPx := FOpticalProfile.TheoreticalPixelSizeUM;
+    FEdScaleUmPerPx.Text := FormatFloat('0.00000', FActiveScaleUmPerPx);
+  end;
+end;
+
+procedure TfrmMain.RefreshCamerasClick(Sender: TObject);
+var
+  I: Integer;
+begin
+  SetStatus('Detectando câmeras com TAICaptureSource (CHATGPT)...');
+  Application.ProcessMessages;
+  if not ListConnectedCameras(FCameras) then
+  begin
+    FCbCameras.Items.Clear;
+    FCbCameras.Items.Add('Nenhuma câmera encontrada');
+    FCbCameras.ItemIndex := 0;
+    SetStatus('Nenhuma câmera detectada pelo componente TAICaptureSource.');
+    Exit;
+  end;
+
+  FCbCameras.Items.Clear;
+  for I := 0 to High(FCameras) do
+    FCbCameras.Items.Add(Format('%d: %s (%dx%d)',
+      [FCameras[I].Index, FCameras[I].Name, FCameras[I].Width, FCameras[I].Height]));
+
+  if FCbCameras.Items.Count > 0 then
+    FCbCameras.ItemIndex := 0;
+  SetStatus(Format('%d câmera(s) detectada(s) via TAICaptureSource.', [Length(FCameras)]));
+  Log(Format('Câmera selecionada via TAICaptureSource: %s', [FCbCameras.Items[0]]));
+end;
+
+procedure TfrmMain.CaptureCameraClick(Sender: TObject);
+var
+  CamIdx: Integer;
+  OutDir, OutFile, CapturedPath: string;
+begin
+  if (FCbCameras.Items.Count = 0) or (FCbCameras.ItemIndex < 0) then
+  begin
+    ShowMessage('Nenhuma câmera selecionada.'); Exit;
+  end;
+
+  CamIdx := FCbCameras.ItemIndex;
+  if CamIdx <= High(FCameras) then
+    CamIdx := FCameras[CamIdx].Index;
+
+  OutDir := ExtractFilePath(ParamStr(0)) + 'captures';
+  ForceDirectories(OutDir);
+  OutFile := OutDir + PathDelim + 'captura_' + FormatDateTime('yyyymmdd_hhnnss', Now) + '.bmp';
+
+  SetStatus('Capturando quadro via TAICaptureSource (CHATGPT)...');
+  Screen.Cursor := crHourGlass;
+  Application.ProcessMessages;
+  try
+    if not CaptureCameraFrame(CamIdx, 1920, 1080, Self.Handle, OutFile, CapturedPath) then
+    begin
+      ShowMessage('Falha ao capturar imagem da câmera com TAICaptureSource.');
+      SetStatus('Falha na captura da câmera.');
+      Exit;
+    end;
+
+    FShowingSampleSummary := False;
+    FCurrentImage := CapturedPath;
+    FEdImage.Text := FCurrentImage;
+    FImage.Picture.LoadFromFile(FCurrentImage);
+    SetLength(FObjects, 0);
+    SetLength(FSummaries, 0);
+    SetLength(FCellMeasurements, 0);
+    FQualityStatus := 'REVISAR';
+    FQualityScore := 0;
+    FFocusScore := 0;
+    FQualityReason := '';
+    FSelectedObject := -1;
+    FAddReviewMode := False;
+    FLastImageID := 0;
+    FBtnReviewSave.Enabled := False;
+    UpdateGrid;
+    FBtnExport.Enabled := False;
+    FBtnAIReport.Enabled := False;
+    FBtnSend.Enabled := False;
+    FMemo.Clear;
+    Log('Quadro capturado via TAICaptureSource e carregado: ' + FCurrentImage);
+    SetStatus('Imagem da câmera capturada com sucesso e pronta para análise.');
+  finally
+    Screen.Cursor := crDefault;
+  end;
+end;
+
+procedure TfrmMain.CalibrateClick(Sender: TObject);
+begin
+  if (FCurrentImage = '') or (FImage.Picture.Graphic = nil) then
+  begin
+    ShowMessage('Carregue uma imagem de régua micrométrica para calibrar.');
+    Exit;
+  end;
+
+  FCalibrating := not FCalibrating;
+  if FCalibrating then
+  begin
+    FCalibStep := 1;
+    FBtnCalibrate.Caption := 'Cancelar Calibração';
+    SetStatus('CALIBRAÇÃO: Clique no PONTO A da régua micrométrica na imagem.');
+  end
+  else
+  begin
+    FCalibStep := 0;
+    FBtnCalibrate.Caption := 'Calibrar por régua';
+    SetStatus('Calibração cancelada.');
+  end;
+end;
+
+procedure TfrmMain.OverlayCheckboxChange(Sender: TObject);
+begin
+  DrawDetections;
+end;
+
+procedure TfrmMain.CalcIndicesClick(Sender: TObject);
+var
+  FS: TFormatSettings;
+  RBC, Hb, Hct: Double;
+  S: TStringList;
+begin
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+  RBC := StrToFloatDef(StringReplace(Trim(FEdRBC.Text), ',', '.', [rfReplaceAll]), 0, FS);
+  Hb := StrToFloatDef(StringReplace(Trim(FEdHb.Text), ',', '.', [rfReplaceAll]), 0, FS);
+  Hct := StrToFloatDef(StringReplace(Trim(FEdHct.Text), ',', '.', [rfReplaceAll]), 0, FS);
+
+  if (RBC <= 0) or (Hb <= 0) or (Hct <= 0) then
+  begin
+    ShowMessage('Informe valores positivos para Hemácias (RBC), Hemoglobina (Hb) e Hematócrito (Hct).');
+    Exit;
+  end;
+
+  FLabData := CalculateLabIndices(RBC, Hb, Hct);
+  if not FLabData.HasData then
+  begin
+    ShowMessage('Valores fora dos limites plausíveis para cálculo.');
+    Exit;
+  end;
+
+  S := TStringList.Create;
+  try
+    S.Add('=== ÍNDICES HEMATOLÓGICOS CLÍNICOS (LABORATORIAIS) ===');
+    S.Add(Format('RBC: %.2f x 10^6/µL | Hb: %.1f g/dL | Hct: %.1f %%', [FLabData.RBC, FLabData.Hemoglobin, FLabData.Hematocrit]));
+    S.Add('');
+    S.Add(Format('VCM  = (Hct * 10) / RBC  = %.1f fL   [Ref: 80 - 100 fL]', [FLabData.MCV]));
+    S.Add(Format('HCM  = (Hb * 10) / RBC   = %.1f pg   [Ref: 27 - 32 pg]', [FLabData.MCH]));
+    S.Add(Format('CHCM = (Hb * 100) / Hct  = %.1f g/dL [Ref: 32 - 36 g/dL]', [FLabData.MCHC]));
+    S.Add('');
+    S.Add('AVISO METODOLÓGICO:');
+    S.Add('Estes índices foram calculados a partir dos dados do contador hematológico');
+    S.Add('externo. Nunca são inferidos a partir da geometria 2D de lâmina.');
+    FMemoIndices.Lines.Assign(S);
+  finally
+    S.Free;
+  end;
+  SetStatus('Índices clínicos calculados.');
+end;
+
+procedure TfrmMain.RecalculateMorphometry;
+var
+  I: Integer;
+  Code: string;
+  ImgW, ImgH: Integer;
+begin
+  SetLength(FCellMeasurements, 0);
+  if (FCurrentImage = '') or not FileExists(FCurrentImage) then Exit;
+  if FImage.Picture.Graphic = nil then Exit;
+
+  ImgW := FImage.Picture.Graphic.Width;
+  ImgH := FImage.Picture.Graphic.Height;
+
+  SetLength(FCellMeasurements, Length(FObjects));
+  for I := 0 to High(FObjects) do
+  begin
+    Code := NormalizeClass(FObjects[I].ClassName);
+    FCellMeasurements[I] := MeasureObject(
+      I + 1,
+      Code,
+      FObjects[I].Confidence,
+      FObjects[I].X1, FObjects[I].Y1,
+      FObjects[I].X2, FObjects[I].Y2,
+      FObjects[I].Polygon,
+      FActiveScaleUmPerPx,
+      ImgW, ImgH,
+      False, // Não permite células cortadas na borda nas estatísticas válidas
+      10.0,
+      100000.0,
+      0.15,
+      'AI'
+    );
+  end;
+
+  FMorphoStats := ComputeMorphometryStatistics(FCellMeasurements);
+  UpdateMorphometryUI;
+  UpdateCellGrid;
+end;
+
+procedure TfrmMain.UpdateMorphometryUI;
+var
+  S: TStringList;
+begin
+  S := TStringList.Create;
+  try
+    S.Add('=== RESUMO ESTATÍSTICO DA MORFOMETRIA ===');
+    S.Add(Format('Objetiva: %.0fx | Escala ativa: %.5f µm/px (%s)',
+      [FOpticalProfile.ObjectiveMagnification, FActiveScaleUmPerPx, FOpticalProfile.CalibrationMethod]));
+    S.Add(Format('Total de células identificadas: %d', [FMorphoStats.CellCount]));
+    S.Add(Format('Células válidas para estatística: %d', [FMorphoStats.ValidCellCount]));
+    S.Add(Format('Células na borda (excluídas da estatística): %d', [FMorphoStats.ExcludedBorderCount]));
+    S.Add('');
+    S.Add('--- Diâmetro Equivalente (Deq) ---');
+    S.Add(Format('Diâmetro Médio: %.2f µm ± %.2f µm', [FMorphoStats.MeanDiameterUM, FMorphoStats.StdDevDiameterUM]));
+    S.Add(Format('Mediana: %.2f µm (P10: %.2f µm, P90: %.2f µm)', [FMorphoStats.MedianDiameterUM, FMorphoStats.P10DiameterUM, FMorphoStats.P90DiameterUM]));
+    S.Add(Format('Mínimo: %.2f µm | Máximo: %.2f µm', [FMorphoStats.MinDiameterUM, FMorphoStats.MaxDiameterUM]));
+    S.Add(Format('CV do diâmetro microscópico: %.2f %%', [FMorphoStats.CVSizePercent]));
+    S.Add('  (Nota: Dispersão microscópica do diâmetro celular. NÃO representa o RDW clínico laboratorial).');
+    S.Add('');
+    S.Add('--- Forma e Área ---');
+    S.Add(Format('Área Média: %.2f µm²', [FMorphoStats.MeanAreaUM2]));
+    S.Add(Format('Circularidade Média: %.2f (0=linear, 1=círculo)', [FMorphoStats.MeanCircularity]));
+    S.Add(Format('Eixo Maior Médio: %.2f µm | Eixo Menor Médio: %.2f µm', [FMorphoStats.MeanMajorAxisUM, FMorphoStats.MeanMinorAxisUM]));
+    S.Add(Format('Razão de Aspecto Média: %.2f', [FMorphoStats.MeanAspectRatio]));
+    FMemoMorphoSummary.Lines.Assign(S);
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TfrmMain.UpdateCellGrid;
+var
+  I: Integer;
+  BordaStr: string;
+begin
+  FGridCells.RowCount := Max(2, Length(FCellMeasurements) + 1);
+  for I := 1 to FGridCells.RowCount - 1 do
+  begin
+    FGridCells.Cells[0, I] := '';
+    FGridCells.Cells[1, I] := '';
+    FGridCells.Cells[2, I] := '';
+    FGridCells.Cells[3, I] := '';
+    FGridCells.Cells[4, I] := '';
+    FGridCells.Cells[5, I] := '';
+    FGridCells.Cells[6, I] := '';
+  end;
+
+  for I := 0 to High(FCellMeasurements) do
+  begin
+    if FCellMeasurements[I].TouchesBorder then BordaStr := 'Sim' else BordaStr := 'Não';
+    FGridCells.Cells[0, I + 1] := IntToStr(FCellMeasurements[I].ObjectID);
+    FGridCells.Cells[1, I + 1] := DisplayClass(FCellMeasurements[I].ClassCode);
+    FGridCells.Cells[2, I + 1] := FormatFloat('0.00', FCellMeasurements[I].AreaUM2);
+    FGridCells.Cells[3, I + 1] := FormatFloat('0.00', FCellMeasurements[I].PerimeterUM);
+    FGridCells.Cells[4, I + 1] := FormatFloat('0.00', FCellMeasurements[I].EquivalentDiameterUM);
+    FGridCells.Cells[5, I + 1] := FormatFloat('0.00', FCellMeasurements[I].Circularity);
+    FGridCells.Cells[6, I + 1] := BordaStr;
+  end;
+end;
+
 
 procedure TfrmMain.ConnectClick(Sender: TObject);
 var
@@ -1041,9 +1639,15 @@ procedure TfrmMain.DrawDetections;
 var
   Bmp: TBitmap;
   I, J: Integer;
-  Code, LabelText: string;
+  Code, LabelText, DiamStr, IDStr: string;
   Tokens, XY: TStringList;
   Points: array of TPoint;
+  BarUM: Double;
+  BarPxLen: Integer;
+  BarX1, BarY1, BarX2, BarY2: Integer;
+  BgX1, BgY1, BgX2, BgY2: Integer;
+  CandidateBars: array[0..4] of Double = (5.0, 10.0, 20.0, 50.0, 100.0);
+  BestDiff, CurrLen: Double;
 begin
   if FCurrentImage = '' then Exit;
   FImage.Picture.LoadFromFile(FCurrentImage);
@@ -1056,7 +1660,6 @@ begin
     Bmp.SetSize(FImage.Picture.Graphic.Width, FImage.Picture.Graphic.Height);
     Bmp.Canvas.Draw(0, 0, FImage.Picture.Graphic);
     Bmp.Canvas.Brush.Style := bsClear;
-    Bmp.Canvas.Pen.Width := 2;
     Bmp.Canvas.Font.Size := 9;
 
     for I := 0 to High(FObjects) do
@@ -1077,32 +1680,104 @@ begin
       end;
       Bmp.Canvas.Font.Color := ColorForClass(Code);
 
-      Tokens.Clear;
-      ExtractStrings(['|'], [], PChar(FObjects[I].Polygon), Tokens);
-      if Tokens.Count >= 3 then
+      // Desenha Contornos se habilitado
+      if FChkShowContours.Checked then
       begin
-        SetLength(Points, Tokens.Count + 1);
-        for J := 0 to Tokens.Count - 1 do
+        Tokens.Clear;
+        ExtractStrings(['|'], [], PChar(FObjects[I].Polygon), Tokens);
+        if Tokens.Count >= 3 then
         begin
-          XY.Clear;
-          ExtractStrings([':'], [], PChar(Tokens[J]), XY);
-          if XY.Count >= 2 then
+          SetLength(Points, Tokens.Count + 1);
+          for J := 0 to Tokens.Count - 1 do
           begin
-            Points[J].X := StrToIntDef(XY[0], FObjects[I].X1);
-            Points[J].Y := StrToIntDef(XY[1], FObjects[I].Y1);
+            XY.Clear;
+            ExtractStrings([':'], [], PChar(Tokens[J]), XY);
+            if XY.Count >= 2 then
+            begin
+              Points[J].X := StrToIntDef(XY[0], FObjects[I].X1);
+              Points[J].Y := StrToIntDef(XY[1], FObjects[I].Y1);
+            end;
           end;
-        end;
-        Points[High(Points)] := Points[0];
-        Bmp.Canvas.Polyline(Points);
-      end
-      else
-        Bmp.Canvas.Rectangle(FObjects[I].X1, FObjects[I].Y1,
-          FObjects[I].X2, FObjects[I].Y2);
+          Points[High(Points)] := Points[0];
+          Bmp.Canvas.Polyline(Points);
+        end
+        else
+          Bmp.Canvas.Rectangle(FObjects[I].X1, FObjects[I].Y1, FObjects[I].X2, FObjects[I].Y2);
+      end;
 
-      LabelText := DisplayClass(Code) + ' ' +
-        FormatFloat('0.0', FObjects[I].Confidence * 100) + '%';
+      // Monta rótulo com ID e Diâmetro conforme opções
+      IDStr := '';
+      if FChkShowIDs.Checked then
+        IDStr := '#' + IntToStr(I + 1) + ' ';
+
+      DiamStr := '';
+      if FChkShowDiameters.Checked and (I <= High(FCellMeasurements)) then
+        DiamStr := Format(' (%.1f µm)', [FCellMeasurements[I].EquivalentDiameterUM]);
+
+      LabelText := IDStr + DisplayClass(Code) + ' ' +
+        FormatFloat('0.0', FObjects[I].Confidence * 100) + '%' + DiamStr;
+
       Bmp.Canvas.TextOut(FObjects[I].X1 + 2, FObjects[I].Y1 + 2, LabelText);
     end;
+
+    // Desenha Barra de Escala se habilitada
+    if FChkShowScaleBar.Checked and (FActiveScaleUmPerPx > 0.00001) then
+    begin
+      // Escolhe o melhor tamanho de barra (5, 10, 20, 50, 100 um) para ter ~80 a 160 pixels
+      BarUM := 20.0;
+      BestDiff := 9999.0;
+      for J := 0 to 4 do
+      begin
+        CurrLen := CandidateBars[J] / FActiveScaleUmPerPx;
+        if Abs(CurrLen - 120.0) < BestDiff then
+        begin
+          BestDiff := Abs(CurrLen - 120.0);
+          BarUM := CandidateBars[J];
+        end;
+      end;
+      BarPxLen := Max(10, Round(BarUM / FActiveScaleUmPerPx));
+
+      BarX2 := Bmp.Width - 25;
+      BarX1 := BarX2 - BarPxLen;
+      BarY2 := Bmp.Height - 20;
+      BarY1 := BarY2 - 6;
+
+      // Fundo preto com borda
+      BgX1 := BarX1 - 10;
+      BgY1 := BarY1 - 22;
+      BgX2 := BarX2 + 10;
+      BgY2 := BarY2 + 6;
+
+      Bmp.Canvas.Brush.Style := bsSolid;
+      Bmp.Canvas.Brush.Color := clBlack;
+      Bmp.Canvas.Pen.Color := clWhite;
+      Bmp.Canvas.Pen.Width := 1;
+      Bmp.Canvas.Rectangle(BgX1, BgY1, BgX2, BgY2);
+
+      // Barra branca
+      Bmp.Canvas.Brush.Color := clWhite;
+      Bmp.Canvas.FillRect(BarX1, BarY1, BarX2, BarY2);
+
+      // Texto da barra
+      Bmp.Canvas.Brush.Style := bsClear;
+      Bmp.Canvas.Font.Color := clWhite;
+      Bmp.Canvas.Font.Size := 10;
+      Bmp.Canvas.Font.Style := [fsBold];
+      Bmp.Canvas.TextOut(BarX1 + Max(2, (BarPxLen - 45) div 2), BarY1 - 18, Format('%.0f µm', [BarUM]));
+    end;
+
+    // Marcador de calibração se estiver calibrando
+    if FCalibrating and (FCalibStep >= 2) then
+    begin
+      Bmp.Canvas.Pen.Color := clRed;
+      Bmp.Canvas.Pen.Width := 3;
+      Bmp.Canvas.Brush.Style := bsClear;
+      Bmp.Canvas.Ellipse(FCalibPointA.X - 5, FCalibPointA.Y - 5, FCalibPointA.X + 5, FCalibPointA.Y + 5);
+      Bmp.Canvas.Font.Color := clRed;
+      Bmp.Canvas.Font.Style := [fsBold];
+      Bmp.Canvas.TextOut(FCalibPointA.X + 8, FCalibPointA.Y - 8, 'Ponto A');
+    end;
+
     FImage.Picture.Assign(Bmp);
   finally
     XY.Free; Tokens.Free; Bmp.Free;
@@ -1118,6 +1793,7 @@ begin
   S := TStringList.Create;
   try
     S.Add('ANÁLISE DE LÂMINA - RESULTADO EXPERIMENTAL');
+    S.Add('================================================');
     S.Add('');
     if FSampleID > 0 then
       S.Add(Format('Paciente #%d | Amostra #%d | Protocolo: %s',
@@ -1132,6 +1808,12 @@ begin
     if FQualityReason <> '' then S.Add('Qualidade - observações: ' + FQualityReason);
     S.Add('Detecções brutas: ' + IntToStr(Length(FObjects)));
     S.Add('');
+    S.Add('CONFIGURAÇÃO ÓPTICA E CALIBRAÇÃO');
+    S.Add(Format('Objetiva: %.0fx | Adaptador: %.2fx | Sensor: %.2f µm',
+      [FOpticalProfile.ObjectiveMagnification, FOpticalProfile.AdapterMagnification, FOpticalProfile.SensorPixelSizeUM]));
+    S.Add(Format('Escala em uso: %.5f µm/pixel (Método: %s)',
+      [FActiveScaleUmPerPx, FOpticalProfile.CalibrationMethod]));
+    S.Add('');
     S.Add('CONTAGEM POR COMPONENTE');
     for I := 0 to High(FSummaries) do
     begin
@@ -1141,8 +1823,34 @@ begin
         [FSummaries[I].DisplayName, FSummaries[I].Count, Avg]));
     end;
     S.Add('');
+    S.Add('MORFOMETRIA POPULACIONAL (HEMÁCIAS)');
+    S.Add(Format('Total analisado: %d | Válidas para estatística: %d | Cortadas na borda: %d',
+      [FMorphoStats.CellCount, FMorphoStats.ValidCellCount, FMorphoStats.ExcludedBorderCount]));
+    if FMorphoStats.ValidCellCount > 0 then
+    begin
+      S.Add(Format('Diâmetro Equivalente Médio: %.2f µm (DP: %.2f µm)',
+        [FMorphoStats.MeanDiameterUM, FMorphoStats.StdDevDiameterUM]));
+      S.Add(Format('Mediana do Diâmetro: %.2f µm (P10: %.2f µm, P90: %.2f µm)',
+        [FMorphoStats.MedianDiameterUM, FMorphoStats.P10DiameterUM, FMorphoStats.P90DiameterUM]));
+      S.Add(Format('CV do diâmetro microscópico: %.2f %% (Dispersão geométrica; não é RDW clínico)',
+        [FMorphoStats.CVSizePercent]));
+      S.Add(Format('Área Média: %.2f µm² | Circularidade Média: %.2f',
+        [FMorphoStats.MeanAreaUM2, FMorphoStats.MeanCircularity]));
+    end;
+    if FLabData.HasData then
+    begin
+      S.Add('');
+      S.Add('DADOS HEMATOLÓGICOS LABORATORIAIS (CONTADOR EXTERNO)');
+      S.Add(Format('RBC: %.2f x 10^6/µL | Hb: %.1f g/dL | Hct: %.1f %%',
+        [FLabData.RBC, FLabData.Hemoglobin, FLabData.Hematocrit]));
+      S.Add(Format('VCM Clínico: %.1f fL | HCM Clínico: %.1f pg | CHCM Clínico: %.1f g/dL',
+        [FLabData.MCV, FLabData.MCH, FLabData.MCHC]));
+      S.Add('Nota: Índices calculados a partir de dados laboratoriais externos.');
+    end;
+    S.Add('');
+    S.Add('DISCLAIMER ÉTICO E CIENTÍFICO:');
     S.Add('Resultado de visão computacional para pesquisa/teste.');
-    S.Add('Não representa validação laboratorial ou diagnóstico clínico.');
+    S.Add('Não substitui o hemograma automatizado ou validação laboratorial clínica.');
     FLastDeterministicReport := S.Text;
     FMemo.Lines.Text := FLastDeterministicReport;
   finally
@@ -1203,6 +1911,9 @@ begin
       ShowMessage('Falha na análise: ' + FYolo.LastError);
       SetStatus('Falha na análise.'); Exit;
     end;
+
+    // Recalcula morfometria celular a partir dos polígonos YOLO e escala ativa
+    RecalculateMorphometry;
     BuildSummaries;
     UpdateGrid;
     DrawDetections;
@@ -1212,7 +1923,7 @@ begin
     FBtnSend.Enabled := (FSampleID > 0) and (FApi <> nil);
     FSelectedObject := -1;
     FAddReviewMode := False;
-    SetStatus(Format('Análise concluída: %d detecção(ões) brutas. Clique em uma célula para revisar.', [Length(FObjects)]));
+    SetStatus(Format('Análise concluída: %d detecção(ões). Morfometria calculada.', [Length(FObjects)]));
   finally
     FBtnAnalyze.Enabled := True;
     Screen.Cursor := crDefault;
@@ -1221,8 +1932,8 @@ end;
 
 function TfrmMain.BuildCountPayload: TJSONObject;
 var
-  Components, Dets: TJSONArray;
-  Comp, Det, Meta: TJSONObject;
+  CompList, Dets, MeasArr: TJSONArray;
+  Comp, Det, Meta, OptObj, MorphObj, MeasObj: TJSONObject;
   I, J, AcceptedTotal: Integer;
   Avg: Double;
   Code: string;
@@ -1246,10 +1957,56 @@ begin
   Result.Add('focus_score', FFocusScore);
   if FQualityReason <> '' then Result.Add('quality_reason', FQualityReason);
   Result.Add('total_cells', AcceptedTotal);
-  Result.Add('notes', 'Campo enviado pelo Hemácias Analyzer Lazarus.');
+  Result.Add('notes', 'Campo enviado pelo Hemácias Analyzer Lazarus com Morfometria.');
 
-  Components := TJSONArray.Create;
-  Result.Add('components', Components);
+  // Snapshot óptico e de calibração
+  OptObj := TJSONObject.Create;
+  OptObj.Add('objective_magnification', FOpticalProfile.ObjectiveMagnification);
+  OptObj.Add('adapter_magnification', FOpticalProfile.AdapterMagnification);
+  OptObj.Add('sensor_pixel_size_um', FOpticalProfile.SensorPixelSizeUM);
+  OptObj.Add('scale_um_per_px', FActiveScaleUmPerPx);
+  OptObj.Add('calibration_method', FOpticalProfile.CalibrationMethod);
+  OptObj.Add('is_calibrated', FOpticalProfile.CalibrationMethod = 'STAGE_MICROMETER');
+  Result.Add('optics', OptObj);
+
+  // Resumo de morfometria populacional
+  MorphObj := TJSONObject.Create;
+  MorphObj.Add('cell_count', FMorphoStats.CellCount);
+  MorphObj.Add('valid_cell_count', FMorphoStats.ValidCellCount);
+  MorphObj.Add('excluded_border_count', FMorphoStats.ExcludedBorderCount);
+  MorphObj.Add('mean_diameter_um', FMorphoStats.MeanDiameterUM);
+  MorphObj.Add('median_diameter_um', FMorphoStats.MedianDiameterUM);
+  MorphObj.Add('stddev_diameter_um', FMorphoStats.StdDevDiameterUM);
+  MorphObj.Add('cv_microscopic_diameter', FMorphoStats.CVSizePercent);
+  MorphObj.Add('p10_diameter_um', FMorphoStats.P10DiameterUM);
+  MorphObj.Add('p90_diameter_um', FMorphoStats.P90DiameterUM);
+  MorphObj.Add('mean_area_um2', FMorphoStats.MeanAreaUM2);
+  MorphObj.Add('mean_circularity', FMorphoStats.MeanCircularity);
+  Result.Add('morphometry_summary', MorphObj);
+
+  // Medições individuais de células
+  MeasArr := TJSONArray.Create;
+  for I := 0 to High(FCellMeasurements) do
+  begin
+    MeasObj := TJSONObject.Create;
+    MeasObj.Add('cell_id', FCellMeasurements[I].ObjectID);
+    MeasObj.Add('class_code', FCellMeasurements[I].ClassCode);
+    MeasObj.Add('confidence', FCellMeasurements[I].Confidence);
+    MeasObj.Add('area_um2', FCellMeasurements[I].AreaUM2);
+    MeasObj.Add('perimeter_um', FCellMeasurements[I].PerimeterUM);
+    MeasObj.Add('equivalent_diameter_um', FCellMeasurements[I].EquivalentDiameterUM);
+    MeasObj.Add('major_axis_um', FCellMeasurements[I].MajorAxisUM);
+    MeasObj.Add('minor_axis_um', FCellMeasurements[I].MinorAxisUM);
+    MeasObj.Add('circularity', FCellMeasurements[I].Circularity);
+    MeasObj.Add('aspect_ratio', FCellMeasurements[I].AspectRatio);
+    MeasObj.Add('touches_border', FCellMeasurements[I].TouchesBorder);
+    MeasObj.Add('measurement_valid', FCellMeasurements[I].MeasurementValid);
+    MeasArr.Add(MeasObj);
+  end;
+  Result.Add('cell_measurements', MeasArr);
+
+  CompList := TJSONArray.Create;
+  Result.Add('components', CompList);
   for I := 0 to High(FSummaries) do
   begin
     if FSummaries[I].Count > 0 then Avg := FSummaries[I].ConfidenceSum / FSummaries[I].Count
@@ -1288,7 +2045,7 @@ begin
       end;
     end;
     Comp.Add('metadata', Meta);
-    Components.Add(Comp);
+    CompList.Add(Comp);
   end;
 end;
 
@@ -1324,7 +2081,17 @@ begin
     FBtnReviewSave.Enabled := FLastImageID > 0;
     if FLastImageID > 0 then
       Log('A revisão humana desta imagem já pode ser salva no dataset.');
-    Log(Format('Campo #%d enviado. count_id=%d, field_id=%d, image_id=%d.',
+    if FLabData.HasData and (FApi <> nil) and (FSampleID > 0) then
+    begin
+      if FApi.SaveSampleHematology(FSampleID, FLabData.RBC, FLabData.Hemoglobin,
+                                   FLabData.Hematocrit, FLabData.MCV, FLabData.MCH,
+                                   FLabData.MCHC, 'Hemacias Analyzer Lazarus') then
+        Log('Dados laboratoriais clínicos salvos para a amostra.')
+      else
+        Log('Falha ao salvar dados laboratoriais: ' + FApi.LastError);
+    end;
+
+        Log(Format('Campo #%d enviado. count_id=%d, field_id=%d, image_id=%d.',
       [FieldNo, CountID, FieldID, ImageID]));
     SetStatus(Format('Campo #%d registrado no servidor.', [FieldNo]));
     FBtnSend.Enabled := False;
@@ -1585,6 +2352,7 @@ end;
 
 procedure TfrmMain.RefreshAfterReview;
 begin
+  RecalculateMorphometry;
   BuildSummaries;
   UpdateGrid;
   DrawDetections;
@@ -1595,9 +2363,62 @@ procedure TfrmMain.ImageMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 var
   IX, IY: Integer;
+  DistPX, RealDistUM, NewScale: Double;
+  RealDistStr: string;
+  FS: TFormatSettings;
 begin
   if Button <> mbLeft then Exit;
   if not ScreenToImage(X, Y, IX, IY) then Exit;
+
+  // Modo Calibração por Régua Micrométrica
+  if FCalibrating then
+  begin
+    if FCalibStep = 1 then
+    begin
+      FCalibPointA := Point(IX, IY);
+      FCalibStep := 2;
+      SetStatus(Format('Ponto A definido em (%d, %d). Clique agora no PONTO B da régua.', [IX, IY]));
+      DrawDetections;
+      Exit;
+    end
+    else if FCalibStep = 2 then
+    begin
+      FCalibPointB := Point(IX, IY);
+      DistPX := Sqrt(Sqr(FCalibPointB.X - FCalibPointA.X) + Sqr(FCalibPointB.Y - FCalibPointA.Y));
+      if DistPX < 2.0 then
+      begin
+        ShowMessage('Os pontos A e B estão muito próximos. Selecione uma distância maior na régua.');
+        Exit;
+      end;
+
+      RealDistStr := '10.0';
+      if InputQuery('Calibração Micrométrica', 'Distância real entre os pontos (µm):', RealDistStr) then
+      begin
+        FS := DefaultFormatSettings; FS.DecimalSeparator := '.';
+        RealDistUM := StrToFloatDef(StringReplace(RealDistStr, ',', '.', [rfReplaceAll]), 0, FS);
+        if RealDistUM > 0 then
+        begin
+          NewScale := RealDistUM / DistPX;
+          FActiveScaleUmPerPx := NewScale;
+          FOpticalProfile.CalibratedPixelSizeUM := NewScale;
+          FOpticalProfile.CalibrationMethod := 'STAGE_MICROMETER';
+          FOpticalProfile.CalibrationReferenceUM := RealDistUM;
+          FOpticalProfile.CalibrationReferencePX := DistPX;
+          FEdScaleUmPerPx.Text := FormatFloat('0.00000', NewScale);
+          FCalibrating := False;
+          FCalibStep := 0;
+          FBtnCalibrate.Caption := 'Calibrar por régua';
+          ShowMessage(Format('Calibração concluída!' + LineEnding +
+            'Distância: %.1f px = %.2f µm' + LineEnding +
+            'Nova escala: %.5f µm/pixel', [DistPX, RealDistUM, NewScale]));
+          RecalculateMorphometry;
+          DrawDetections;
+          BuildDeterministicReport;
+        end;
+      end;
+      Exit;
+    end;
+  end;
 
   if FAddReviewMode then
   begin

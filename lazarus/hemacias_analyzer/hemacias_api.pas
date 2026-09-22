@@ -1,4 +1,4 @@
-unit hemacias_api;
+﻿unit hemacias_api;
 
 {$mode objfpc}{$H+}
 
@@ -34,6 +34,10 @@ type
     function SaveAnnotations(AImageID: Int64; AAnnotations: TJSONArray): Boolean;
     function CreateCount(APayload: TJSONObject; const AImageFile: string;
       out ACountID, AImageID, AFieldID: Int64; out AFieldNo: Integer): Boolean;
+    function SaveSampleHematology(ASampleID: Int64; ARBC, AHemoglobin, AHematocrit,
+      AMCV, AMCH, AMCHC: Double; const ANotes: string): Boolean;
+    function GetOpticalProfiles: TJSONArray;
+    function SaveOpticalProfile(AProfile: TJSONObject): Int64;
   end;
 
 implementation
@@ -380,6 +384,104 @@ begin
     AFieldID := JsonInt64('field_id');
     AFieldNo := Integer(JsonInt64('field_no'));
     Result := ACountID > 0;
+  finally
+    Data.Free;
+  end;
+end;
+
+function THemaciasApiClient.SaveSampleHematology(ASampleID: Int64; ARBC, AHemoglobin,
+  AHematocrit, AMCV, AMCH, AMCHC: Double; const ANotes: string): Boolean;
+var
+  Req: TJSONObject;
+  Data: TJSONData;
+begin
+  Result := False;
+  Req := TJSONObject.Create;
+  try
+    Req.Add('sample_id', ASampleID);
+    Req.Add('rbc', ARBC);
+    Req.Add('hemoglobin', AHemoglobin);
+    Req.Add('hematocrit', AHematocrit);
+    Req.Add('mcv', AMCV);
+    Req.Add('mch', AMCH);
+    Req.Add('mchc', AMCHC);
+    if Trim(ANotes) <> '' then
+      Req.Add('notes', ANotes);
+    Data := RequestJSON('sample_hematology_save', Req);
+  finally
+    Req.Free;
+  end;
+
+  if Data = nil then Exit;
+  try
+    if not (Data is TJSONObject) then
+    begin
+      FLastError := 'Resposta inválida ao salvar dados hematológicos.';
+      Exit;
+    end;
+    if not TJSONObject(Data).Get('ok', False) then
+    begin
+      FLastError := TJSONObject(Data).Get('error', 'Falha ao salvar dados hematológicos.');
+      Exit;
+    end;
+    Result := True;
+  finally
+    Data.Free;
+  end;
+end;
+
+function THemaciasApiClient.GetOpticalProfiles: TJSONArray;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+begin
+  Result := nil;
+  Data := RequestJSON('optical_profiles_list', nil, True);
+  if Data = nil then Exit;
+  try
+    if not (Data is TJSONObject) then
+    begin
+      FLastError := 'Resposta inválida ao listar perfis ópticos.';
+      Data.Free;
+      Exit;
+    end;
+    Obj := TJSONObject(Data);
+    if not Obj.Get('ok', False) then
+    begin
+      FLastError := Obj.Get('error', 'Falha ao consultar perfis ópticos.');
+      Data.Free;
+      Exit;
+    end;
+    Result := TJSONArray(Obj.Get('profiles', TJSONArray(nil)));
+    if Result <> nil then
+      Result := TJSONArray(GetJSON(Result.AsJSON));
+  finally
+    Data.Free;
+  end;
+end;
+
+function THemaciasApiClient.SaveOpticalProfile(AProfile: TJSONObject): Int64;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+begin
+  Result := 0;
+  if AProfile = nil then Exit;
+  Data := RequestJSON('optical_profile_save', AProfile);
+  if Data = nil then Exit;
+  try
+    if not (Data is TJSONObject) then
+    begin
+      FLastError := 'Resposta inválida ao salvar perfil óptico.';
+      Exit;
+    end;
+    Obj := TJSONObject(Data);
+    if not Obj.Get('ok', False) then
+    begin
+      FLastError := Obj.Get('error', 'Falha ao salvar perfil óptico.');
+      Exit;
+    end;
+    Result := Obj.Get('id', Int64(0));
   finally
     Data.Free;
   end;

@@ -20,3 +20,15 @@ datasets/*
 runs/
 *.pt
 *.onnx
+
+# Lazarus / Free Pascal build artifacts
+*.exe
+*.ppu
+*.o
+*.or
+*.res
+*.lps
+lazarus/**/lib/
+lazarus/**/backup/
+lib/
+backup/

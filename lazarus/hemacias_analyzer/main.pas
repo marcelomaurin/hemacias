@@ -916,14 +916,16 @@ procedure TfrmMain.RefreshCamerasClick(Sender: TObject);
 var
   I: Integer;
 begin
-  SetStatus('Detectando câmeras com TAICaptureSource (CHATGPT)...');
+  SetStatus('Detectando câmeras (DirectShow Win7+ / TAICaptureSource)...');
   Application.ProcessMessages;
   if not ListConnectedCameras(FCameras) then
   begin
     FCbCameras.Items.Clear;
     FCbCameras.Items.Add('Nenhuma câmera encontrada');
     FCbCameras.ItemIndex := 0;
-    SetStatus('Nenhuma câmera detectada pelo componente TAICaptureSource.');
+    FCbCameras.Enabled := False;
+    FBtnCaptureCamera.Enabled := False;
+    SetStatus('Nenhuma câmera detectada no sistema.');
     Exit;
   end;
 
@@ -933,9 +935,13 @@ begin
       [FCameras[I].Index, FCameras[I].Name, FCameras[I].Width, FCameras[I].Height]));
 
   if FCbCameras.Items.Count > 0 then
+  begin
     FCbCameras.ItemIndex := 0;
-  SetStatus(Format('%d câmera(s) detectada(s) via TAICaptureSource.', [Length(FCameras)]));
-  Log(Format('Câmera selecionada via TAICaptureSource: %s', [FCbCameras.Items[0]]));
+    FCbCameras.Enabled := True;
+    FBtnCaptureCamera.Enabled := True;
+  end;
+  SetStatus(Format('%d câmera(s) detectada(s) (DirectShow Win7+ / TAICaptureSource).', [Length(FCameras)]));
+  Log(Format('Câmera selecionada: %s', [FCbCameras.Items[0]]));
 end;
 
 procedure TfrmMain.CaptureCameraClick(Sender: TObject);
@@ -943,9 +949,9 @@ var
   CamIdx: Integer;
   OutDir, OutFile, CapturedPath: string;
 begin
-  if (FCbCameras.Items.Count = 0) or (FCbCameras.ItemIndex < 0) then
+  if (FCbCameras.Items.Count = 0) or (FCbCameras.ItemIndex < 0) or (FCbCameras.Text = 'Nenhuma câmera encontrada') then
   begin
-    ShowMessage('Nenhuma câmera selecionada.'); Exit;
+    ShowMessage('Nenhuma câmera selecionada. Clique em Atualizar para buscar câmeras conectadas.'); Exit;
   end;
 
   CamIdx := FCbCameras.ItemIndex;

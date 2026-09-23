@@ -50,6 +50,17 @@ type
     FImage: TImage;
     FStatus: TStatusBar;
 
+    // Viewport central e Reguas tabuladas X e Y
+    FViewport: TPanel;
+    FRulerTopPanel: TPanel;
+    FRulerCorner: TPaintBox;
+    FRulerX: TPaintBox;
+    FRulerLeft: TPaintBox;
+    FRulerUnitUM: Boolean;
+    FMouseOverImage: Boolean;
+    FMouseScreenX: Integer;
+    FMouseScreenY: Integer;
+
     // Abas do painel direito
     FPageControl: TPageControl;
     FTabCounts: TTabSheet;
@@ -225,6 +236,15 @@ type
     procedure ApplyImageAdjustments;
     function GetProcessedBaseBitmap: TBitmap;
 
+    procedure RulerXPaint(Sender: TObject);
+    procedure RulerLeftPaint(Sender: TObject);
+    procedure RulerCornerPaint(Sender: TObject);
+    procedure RulerCornerClick(Sender: TObject);
+    procedure ImageMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure ImageMouseLeave(Sender: TObject);
+    procedure ImageResize(Sender: TObject);
+    function CalculateNiceStep(TargetStep: Double): Double;
+
     function ConfidenceValue: Double;
     function ImageSizeValue: Integer;
     function NormalizeClass(const AName: string): string;
@@ -382,6 +402,10 @@ begin
   FCalibrating := False;
   FCalibStep := 0;
   FillChar(FLabData, SizeOf(FLabData), 0);
+  FRulerUnitUM := True;
+  FMouseOverImage := False;
+  FMouseScreenX := -1;
+  FMouseScreenY := -1;
 
   BuildUI;
   InitializeAI;
@@ -920,11 +944,53 @@ begin
   FStatus := TStatusBar.Create(Self); FStatus.Parent := FBottom;
   FStatus.Align := alClient; FStatus.SimplePanel := True;
 
-  // --- Imagem Microscópica Central ---
-  FImage := TImage.Create(Self); FImage.Parent := Self;
-  FImage.Align := alClient; FImage.Center := True;
-  FImage.Proportional := True; FImage.Stretch := True;
+  // --- Viewport Central com Reguas Tabuladas X e Y ---
+  FViewport := TPanel.Create(Self);
+  FViewport.Parent := Self;
+  FViewport.Align := alClient;
+  FViewport.BevelOuter := bvNone;
+  FViewport.Color := clBtnFace;
+
+  // Barra Superior (Regua X + Caixa de Canto)
+  FRulerTopPanel := TPanel.Create(Self);
+  FRulerTopPanel.Parent := FViewport;
+  FRulerTopPanel.Align := alTop;
+  FRulerTopPanel.Height := 24;
+  FRulerTopPanel.BevelOuter := bvNone;
+  FRulerTopPanel.Color := clBtnFace;
+
+  // Caixa de canto (unidade: um ou px)
+  FRulerCorner := TPaintBox.Create(Self);
+  FRulerCorner.Parent := FRulerTopPanel;
+  FRulerCorner.Align := alLeft;
+  FRulerCorner.Width := 34;
+  FRulerCorner.OnPaint := @RulerCornerPaint;
+  FRulerCorner.OnClick := @RulerCornerClick;
+
+  // Regua Horizontal (Eixo X)
+  FRulerX := TPaintBox.Create(Self);
+  FRulerX.Parent := FRulerTopPanel;
+  FRulerX.Align := alClient;
+  FRulerX.OnPaint := @RulerXPaint;
+
+  // Regua Vertical (Eixo Y)
+  FRulerLeft := TPaintBox.Create(Self);
+  FRulerLeft.Parent := FViewport;
+  FRulerLeft.Align := alLeft;
+  FRulerLeft.Width := 34;
+  FRulerLeft.OnPaint := @RulerLeftPaint;
+
+  // Imagem Microscopica Central
+  FImage := TImage.Create(Self);
+  FImage.Parent := FViewport;
+  FImage.Align := alClient;
+  FImage.Center := True;
+  FImage.Proportional := True;
+  FImage.Stretch := True;
   FImage.OnMouseDown := @ImageMouseDown;
+  FImage.OnMouseMove := @ImageMouseMove;
+  FImage.OnMouseLeave := @ImageMouseLeave;
+  FImage.OnResize := @ImageResize;
 
   FOpenImage := TOpenDialog.Create(Self);
   FOpenImage.Title := 'Selecionar imagem de lâmina';
@@ -1968,6 +2034,8 @@ begin
   finally
     XY.Free; Tokens.Free; Bmp.Free;
   end;
+  if Assigned(FRulerX) then FRulerX.Invalidate;
+  if Assigned(FRulerLeft) then FRulerLeft.Invalidate;
 end;
 
 procedure TfrmMain.BuildDeterministicReport;
@@ -3199,6 +3267,266 @@ begin
   finally
     SaveDlg.Free;
   end;
+end;
+
+
+function TfrmMain.CalculateNiceStep(TargetStep: Double): Double;
+var
+  ExpVal, Fraction, NiceFraction: Double;
+begin
+  if (TargetStep <= 0.0) or IsNan(TargetStep) or IsInfinite(TargetStep) then Exit(1.0);
+  ExpVal := Power(10.0, Floor(Log10(TargetStep)));
+  if ExpVal <= 0 then ExpVal := 1.0;
+  Fraction := TargetStep / ExpVal;
+  if Fraction < 1.5 then
+    NiceFraction := 1.0
+  else if Fraction < 3.0 then
+    NiceFraction := 2.0
+  else if Fraction < 7.0 then
+    NiceFraction := 5.0
+  else
+    NiceFraction := 10.0;
+  Result := NiceFraction * ExpVal;
+end;
+
+procedure TfrmMain.RulerCornerPaint(Sender: TObject);
+begin
+  FRulerCorner.Canvas.Brush.Color := $DCDCDC;
+  FRulerCorner.Canvas.FillRect(0, 0, FRulerCorner.Width, FRulerCorner.Height);
+  FRulerCorner.Canvas.Pen.Color := $A0A0A0;
+  FRulerCorner.Canvas.Rectangle(0, 0, FRulerCorner.Width, FRulerCorner.Height);
+
+  FRulerCorner.Canvas.Font.Size := 7;
+  FRulerCorner.Canvas.Font.Style := [fsBold];
+  FRulerCorner.Canvas.Font.Color := $202020;
+  if FRulerUnitUM then
+    FRulerCorner.Canvas.TextOut(6, 6, Chr(181) + 'm')
+  else
+    FRulerCorner.Canvas.TextOut(8, 6, 'px');
+end;
+
+procedure TfrmMain.RulerCornerClick(Sender: TObject);
+begin
+  FRulerUnitUM := not FRulerUnitUM;
+  FRulerCorner.Invalidate;
+  FRulerX.Invalidate;
+  FRulerLeft.Invalidate;
+end;
+
+procedure TfrmMain.RulerXPaint(Sender: TObject);
+var
+  IW, IH, DW, DH, OX, OY: Integer;
+  ScreenScale, ScaleUM: Double;
+  MajorStep, MinorStep, Val, ScreenX: Double;
+  TextStr: string;
+  H: Integer;
+begin
+  H := FRulerX.Height;
+  FRulerX.Canvas.Brush.Color := $F4F4F4;
+  FRulerX.Canvas.FillRect(0, 0, FRulerX.Width, H);
+  FRulerX.Canvas.Pen.Color := $B0B0B0;
+  FRulerX.Canvas.Line(0, H - 1, FRulerX.Width, H - 1);
+
+  if (FImage.Picture.Graphic = nil) then Exit;
+  IW := FImage.Picture.Graphic.Width;
+  IH := FImage.Picture.Graphic.Height;
+  if (IW <= 0) or (IH <= 0) or (FImage.ClientWidth <= 0) or (FImage.ClientHeight <= 0) then Exit;
+
+  ScreenScale := Min(FImage.ClientWidth / IW, FImage.ClientHeight / IH);
+  DW := Round(IW * ScreenScale);
+  DH := Round(IH * ScreenScale);
+  OX := (FImage.ClientWidth - DW) div 2;
+  OY := (FImage.ClientHeight - DH) div 2;
+
+  // Área ativa da régua (onde a imagem está presente)
+  FRulerX.Canvas.Brush.Color := $FFFFFF;
+  FRulerX.Canvas.FillRect(OX, 0, OX + DW, H - 1);
+  FRulerX.Canvas.Pen.Color := $707070;
+  FRulerX.Canvas.Line(OX, 0, OX, H - 1);
+  FRulerX.Canvas.Line(OX + DW, 0, OX + DW, H - 1);
+  FRulerX.Canvas.Line(OX, H - 1, OX + DW, H - 1);
+
+  if FRulerUnitUM and (FActiveScaleUmPerPx > 0) then
+    ScaleUM := FActiveScaleUmPerPx
+  else
+    ScaleUM := 1.0;
+
+  MajorStep := CalculateNiceStep((55.0 / ScreenScale) * ScaleUM);
+  MinorStep := MajorStep / 5.0;
+
+  FRulerX.Canvas.Font.Size := 7;
+  FRulerX.Canvas.Font.Name := 'Segoe UI';
+  FRulerX.Canvas.Font.Color := $404040;
+
+  // Subdivisões menores (Minor Ticks)
+  FRulerX.Canvas.Pen.Color := $A8A8A8;
+  FRulerX.Canvas.Pen.Width := 1;
+  Val := 0.0;
+  while Val <= (IW * ScaleUM) do
+  begin
+    ScreenX := OX + (Val / ScaleUM) * ScreenScale;
+    if (ScreenX >= OX) and (ScreenX <= OX + DW) then
+      FRulerX.Canvas.Line(Round(ScreenX), H - 4, Round(ScreenX), H - 1);
+    Val := Val + MinorStep;
+  end;
+
+  // Divisões principais (Major Ticks) e números
+  FRulerX.Canvas.Pen.Color := $303030;
+  Val := 0.0;
+  while Val <= (IW * ScaleUM) do
+  begin
+    ScreenX := OX + (Val / ScaleUM) * ScreenScale;
+    if (ScreenX >= OX) and (ScreenX <= OX + DW) then
+    begin
+      FRulerX.Canvas.Line(Round(ScreenX), H - 9, Round(ScreenX), H - 1);
+      if MajorStep >= 1.0 then
+        TextStr := Format('%.0f', [Val])
+      else
+        TextStr := Format('%.1f', [Val]);
+      FRulerX.Canvas.TextOut(Round(ScreenX) + 2, 2, TextStr);
+    end;
+    Val := Val + MajorStep;
+  end;
+
+  // Marcador da posição do cursor (linha indicadora vermelha)
+  if FMouseOverImage and (FMouseScreenX >= OX) and (FMouseScreenX <= OX + DW) then
+  begin
+    FRulerX.Canvas.Pen.Color := clRed;
+    FRulerX.Canvas.Pen.Width := 1;
+    FRulerX.Canvas.Line(FMouseScreenX, 0, FMouseScreenX, H);
+    FRulerX.Canvas.Brush.Color := clRed;
+    FRulerX.Canvas.Polygon([Point(FMouseScreenX - 3, 0), Point(FMouseScreenX + 3, 0), Point(FMouseScreenX, 4)]);
+  end;
+end;
+
+procedure TfrmMain.RulerLeftPaint(Sender: TObject);
+var
+  IW, IH, DW, DH, OX, OY: Integer;
+  ScreenScale, ScaleUM: Double;
+  MajorStep, MinorStep, Val, ScreenY: Double;
+  TextStr: string;
+  W: Integer;
+begin
+  W := FRulerLeft.Width;
+  FRulerLeft.Canvas.Brush.Color := $F4F4F4;
+  FRulerLeft.Canvas.FillRect(0, 0, W, FRulerLeft.Height);
+  FRulerLeft.Canvas.Pen.Color := $B0B0B0;
+  FRulerLeft.Canvas.Line(W - 1, 0, W - 1, FRulerLeft.Height);
+
+  if (FImage.Picture.Graphic = nil) then Exit;
+  IW := FImage.Picture.Graphic.Width;
+  IH := FImage.Picture.Graphic.Height;
+  if (IW <= 0) or (IH <= 0) or (FImage.ClientWidth <= 0) or (FImage.ClientHeight <= 0) then Exit;
+
+  ScreenScale := Min(FImage.ClientWidth / IW, FImage.ClientHeight / IH);
+  DW := Round(IW * ScreenScale);
+  DH := Round(IH * ScreenScale);
+  OX := (FImage.ClientWidth - DW) div 2;
+  OY := (FImage.ClientHeight - DH) div 2;
+
+  // Área ativa da régua (onde a imagem está presente)
+  FRulerLeft.Canvas.Brush.Color := $FFFFFF;
+  FRulerLeft.Canvas.FillRect(0, OY, W - 1, OY + DH);
+  FRulerLeft.Canvas.Pen.Color := $707070;
+  FRulerLeft.Canvas.Line(0, OY, W - 1, OY);
+  FRulerLeft.Canvas.Line(0, OY + DH, W - 1, OY + DH);
+  FRulerLeft.Canvas.Line(W - 1, OY, W - 1, OY + DH);
+
+  if FRulerUnitUM and (FActiveScaleUmPerPx > 0) then
+    ScaleUM := FActiveScaleUmPerPx
+  else
+    ScaleUM := 1.0;
+
+  MajorStep := CalculateNiceStep((45.0 / ScreenScale) * ScaleUM);
+  MinorStep := MajorStep / 5.0;
+
+  FRulerLeft.Canvas.Font.Size := 7;
+  FRulerLeft.Canvas.Font.Name := 'Segoe UI';
+  FRulerLeft.Canvas.Font.Color := $404040;
+
+  // Ticks menores
+  FRulerLeft.Canvas.Pen.Color := $A8A8A8;
+  FRulerLeft.Canvas.Pen.Width := 1;
+  Val := 0.0;
+  while Val <= (IH * ScaleUM) do
+  begin
+    ScreenY := OY + (Val / ScaleUM) * ScreenScale;
+    if (ScreenY >= OY) and (ScreenY <= OY + DH) then
+      FRulerLeft.Canvas.Line(W - 4, Round(ScreenY), W - 1, Round(ScreenY));
+    Val := Val + MinorStep;
+  end;
+
+  // Ticks maiores e números
+  FRulerLeft.Canvas.Pen.Color := $303030;
+  Val := 0.0;
+  while Val <= (IH * ScaleUM) do
+  begin
+    ScreenY := OY + (Val / ScaleUM) * ScreenScale;
+    if (ScreenY >= OY) and (ScreenY <= OY + DH) then
+    begin
+      FRulerLeft.Canvas.Line(W - 9, Round(ScreenY), W - 1, Round(ScreenY));
+      if MajorStep >= 1.0 then
+        TextStr := Format('%.0f', [Val])
+      else
+        TextStr := Format('%.1f', [Val]);
+      FRulerLeft.Canvas.TextOut(2, Round(ScreenY) + 2, TextStr);
+    end;
+    Val := Val + MajorStep;
+  end;
+
+  // Marcador da posição do cursor (linha indicadora vermelha)
+  if FMouseOverImage and (FMouseScreenY >= OY) and (FMouseScreenY <= OY + DH) then
+  begin
+    FRulerLeft.Canvas.Pen.Color := clRed;
+    FRulerLeft.Canvas.Pen.Width := 1;
+    FRulerLeft.Canvas.Line(0, FMouseScreenY, W, FMouseScreenY);
+    FRulerLeft.Canvas.Brush.Color := clRed;
+    FRulerLeft.Canvas.Polygon([Point(0, FMouseScreenY - 3), Point(0, FMouseScreenY + 3), Point(4, FMouseScreenY)]);
+  end;
+end;
+
+procedure TfrmMain.ImageMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  IX, IY: Integer;
+  RealX, RealY: Double;
+begin
+  FMouseScreenX := X;
+  FMouseScreenY := Y;
+  FMouseOverImage := True;
+
+  if Assigned(FRulerX) then FRulerX.Invalidate;
+  if Assigned(FRulerLeft) then FRulerLeft.Invalidate;
+
+  if ScreenToImage(X, Y, IX, IY) then
+  begin
+    if (FActiveScaleUmPerPx > 0) then
+    begin
+      RealX := IX * FActiveScaleUmPerPx;
+      RealY := IY * FActiveScaleUmPerPx;
+      if not FCalibrating then
+        FStatus.SimpleText := Format('Posi' + Chr(231) + Chr(227) + 'o: X=%.1f ' + Chr(181) + 'm, Y=%.1f ' + Chr(181) + 'm (Pixel: %d, %d)', [RealX, RealY, IX, IY]);
+    end
+    else
+    begin
+      if not FCalibrating then
+        FStatus.SimpleText := Format('Pixel: (%d, %d)', [IX, IY]);
+    end;
+  end;
+end;
+
+procedure TfrmMain.ImageMouseLeave(Sender: TObject);
+begin
+  FMouseOverImage := False;
+  FMouseScreenX := -1;
+  FMouseScreenY := -1;
+  if Assigned(FRulerX) then FRulerX.Invalidate;
+  if Assigned(FRulerLeft) then FRulerLeft.Invalidate;
+end;
+
+procedure TfrmMain.ImageResize(Sender: TObject);
+begin
+  if Assigned(FRulerX) then FRulerX.Invalidate;
+  if Assigned(FRulerLeft) then FRulerLeft.Invalidate;
 end;
 
 end.

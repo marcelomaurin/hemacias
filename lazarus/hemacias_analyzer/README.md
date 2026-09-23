@@ -96,3 +96,26 @@ A escala de medição utilizada na morfometria obedece à seguinte ordem de prec
 > **AVISO CIENTÍFICO**: O método `THEORETICAL` **NÃO substitui a calibração física por micrômetro de lâmina** para morfometria quantitativa. Lentes de microscópios, tubos e adaptadores C-mount apresentam tolerâncias de fabricação e variações de parfocalidade que podem alterar a escala real em 5% a 20%.
 >
 > Para laudos e estudos científicos quantitativos, utilize sempre o método `STAGE_MICROMETER` ou `SCALE_BAR` (`CALIBRATED`).
+
+
+---
+
+## 7. Detecção automática da resolução da câmera
+
+O sistema implementa detecção automática e seleção metrológica de resolução para câmeras de microscopia:
+
+1. **Consulta direta ao hardware/driver**:
+   O sistema tenta consultar diretamente os modos suportados pelo dispositivo de captura (via DirectShow / OpenCV backend). Quando a consulta ao hardware é bem-sucedida, a origem dos modos é rotulada como `DEVICE_REPORTED`. Se o driver não responder à enumeração de capacidades, o sistema utiliza presets genéricos padronizados (`GENERIC_PRESET`, de 640×480 até 3840×2160).
+
+2. **Seleção Automática / Melhor disponível**:
+   Em modo automático, é selecionada a maior resolução disponível baseada na quantidade total de pixels ($	ext{Largura} 	imes 	ext{Altura}$). Em caso de empate, prevalece o maior FPS. Para microscopia óptica, a resolução espacial tem prioridade sobre a taxa de quadros por segundo. O usuário também pode selecionar manualmente qualquer modo detectado através do seletor na interface.
+
+3. **Conferência da resolução efetiva pós-captura**:
+   A resolução efetivamente retornada pelo driver é conferida após a captura física do frame a partir das dimensões reais do bitmap gravado. O sistema **não assume** que a resolução entregue é idêntica à solicitada: se a câmera retornar uma resolução diferente (ex: solicitada 1920×1080 mas entregue 1600×1200 ou 1280×720), o evento é registrado e a imagem é preservada sem distorções nem resizes artificiais.
+
+4. **Resolução efetiva no perfil óptico**:
+   A resolução efetiva recebida (`AcquisitionWidthPX`, `AcquisitionHeightPX`) é a única utilizada no perfil óptico e na determinação de fatores de redimensionamento e escala. A resolução solicitada é armazenada separadamente (`RequestedWidthPX`, `RequestedHeightPX`) para auditoria metrológica.
+
+5. **Independência entre Megapixels e Escala Física ($\mu	ext{m/px}$)**:
+   > **AVISO METROLÓGICO CRÍTICO**: A resolução em Megapixels **NÃO** determina a escala óptica em $\mu	ext{m/pixel}$.
+   > O tamanho físico de cada pixel do sensor (`SensorPixelSizeUM`) é uma propriedade intrínseca da matriz semicondutora do sensor CMOS/CCD e das dimensões físicas da pastilha de silício (ex: $3,45\,\mu	ext{m}$, $2,4\,\mu	ext{m}$, $1,45\,\mu	ext{m}$). Câmeras de mesma contagem de Megapixels podem ter sensores físicos de tamanhos completamente diferentes (ex: 1/2.8", 1/1.8", 1"). Portanto, `SensorPixelSizeUM` continua sendo uma informação independente obtida da ficha técnica do fabricante ou calibrada fisicamente via micrômetro de lâmina, e **nunca** deve ser deduzida apenas pela resolução em pixels.

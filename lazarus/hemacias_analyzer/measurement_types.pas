@@ -31,6 +31,10 @@ type
     EffectivePixelSizeYUM: Double;
     ResizeFactorX: Double;
     ResizeFactorY: Double;
+    RequestedWidthPX: Integer;
+    RequestedHeightPX: Integer;
+    CameraFPS: Double;
+    ResolutionSource: string; // 'DEVICE_REPORTED', 'GENERIC_PRESET'
     Active: Boolean;
     CalibratedAt: TDateTime;
   end;

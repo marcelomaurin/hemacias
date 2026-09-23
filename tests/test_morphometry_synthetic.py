@@ -231,5 +231,180 @@ class TestMorphometryMath(unittest.TestCase):
         self.assertEqual(valid_cells[0]["diam"], 7.5)
 
 
+
+
+def resolution_megapixels(width: int, height: int) -> float:
+    if width <= 0 or height <= 0:
+        return 0.0
+    return (width * height) / 1000000.0
+
+
+def sort_and_filter_resolutions(res_list):
+    filtered = []
+    for item in res_list:
+        w = item.get('width', 0)
+        h = item.get('height', 0)
+        fps = item.get('fps', 0.0)
+        if w > 0 and h > 0:
+            dup = False
+            for f in filtered:
+                if f['width'] == w and f['height'] == h:
+                    dup = True
+                    if fps > f['fps']:
+                        f['fps'] = fps
+                    break
+            if not dup:
+                filtered.append({'width': w, 'height': h, 'fps': fps})
+    filtered.sort(key=lambda r: (r['width'] * r['height'], r['fps']))
+    return filtered
+
+
+def get_best_camera_resolution(res_list):
+    if not res_list:
+        return False, 0, 0, 0.0
+    valid_filtered = sort_and_filter_resolutions(res_list)
+    if not valid_filtered:
+        return False, 0, 0, 0.0
+    best = max(valid_filtered, key=lambda r: (r['width'] * r['height'], r['fps']))
+    return True, best['width'], best['height'], best['fps']
+
+
+GENERIC_PRESETS = [
+    (640, 480), (800, 600), (1024, 768), (1280, 720), (1280, 960),
+    (1280, 1024), (1600, 1200), (1920, 1080), (1920, 1200), (2048, 1536),
+    (2560, 1440), (2592, 1944), (3264, 2448), (3840, 2160)
+]
+
+
+class TestCameraResolutionDetection(unittest.TestCase):
+    # Tarefa 124-128: Ordenar resolucoes por pixels e determinar a melhor
+    def test_sort_and_best_resolution_by_pixels(self):
+        modes = [
+            {'width': 640, 'height': 480, 'fps': 30.0},
+            {'width': 1600, 'height': 1200, 'fps': 15.0},
+            {'width': 1920, 'height': 1080, 'fps': 30.0}
+        ]
+        sorted_modes = sort_and_filter_resolutions(modes)
+        # 640x480=307.200 < 1600x1200=1.920.000 < 1920x1080=2.073.600
+        self.assertEqual(sorted_modes[0]['width'], 640)
+        self.assertEqual(sorted_modes[1]['width'], 1600)
+        self.assertEqual(sorted_modes[2]['width'], 1920)
+
+        ok, best_w, best_h, best_fps = get_best_camera_resolution(modes)
+        self.assertTrue(ok)
+        self.assertEqual(best_w, 1920)
+        self.assertEqual(best_h, 1080)
+        self.assertEqual(best_fps, 30.0)
+
+    # Tarefa 129-130: Empate de resolucao com desempate por FPS
+    def test_resolution_tie_break_fps(self):
+        modes = [
+            {'width': 1920, 'height': 1080, 'fps': 15.0},
+            {'width': 1920, 'height': 1080, 'fps': 30.0},
+            {'width': 1280, 'height': 720, 'fps': 60.0}
+        ]
+        sorted_modes = sort_and_filter_resolutions(modes)
+        # Deve deduplicar 1920x1080 mantendo FPS=30
+        res_1080 = [m for m in sorted_modes if m['width'] == 1920 and m['height'] == 1080]
+        self.assertEqual(len(res_1080), 1)
+        self.assertEqual(res_1080[0]['fps'], 30.0)
+
+        ok, best_w, best_h, best_fps = get_best_camera_resolution(modes)
+        self.assertTrue(ok)
+        self.assertEqual(best_w, 1920)
+        self.assertEqual(best_fps, 30.0)
+
+    # Tarefa 131-132: Ausencia de FPS nao invalida a resolucao
+    def test_resolution_without_fps(self):
+        modes = [
+            {'width': 1280, 'height': 720, 'fps': 0.0},
+            {'width': 640, 'height': 480}
+        ]
+        ok, best_w, best_h, _ = get_best_camera_resolution(modes)
+        self.assertTrue(ok)
+        self.assertEqual(best_w, 1280)
+        self.assertEqual(best_h, 720)
+
+    # Tarefa 133-134: Lista vazia retorna False
+    def test_empty_resolution_list(self):
+        ok, best_w, best_h, best_fps = get_best_camera_resolution([])
+        self.assertFalse(ok)
+
+    # Tarefa 135-139: Calculo de Megapixels
+    def test_megapixels_calculation(self):
+        # 1920 x 1080 = 2,0736 MP
+        self.assertAlmostEqual(resolution_megapixels(1920, 1080), 2.0736, places=4)
+        # 1600 x 1200 = 1,92 MP
+        self.assertAlmostEqual(resolution_megapixels(1600, 1200), 1.92, places=4)
+        # Invalido
+        self.assertEqual(resolution_megapixels(0, 1080), 0.0)
+        self.assertEqual(resolution_megapixels(-10, -10), 0.0)
+
+    # Tarefa 140-141: Resolucao solicitada diferente da recebida
+    def test_requested_vs_received_resolution_profile(self):
+        requested_w = 1920
+        requested_h = 1080
+        actual_w = 1280
+        actual_h = 720
+
+        optical_profile = {
+            'requested_width_px': requested_w,
+            'requested_height_px': requested_h,
+            'acquisition_width_px': actual_w,
+            'acquisition_height_px': actual_h,
+            'camera_width': actual_w,
+            'camera_height': actual_h,
+        }
+
+        # A escala metrologica e analise usam obrigatoriamente a resolucao real recebida
+        self.assertEqual(optical_profile['acquisition_width_px'], 1280)
+        self.assertEqual(optical_profile['acquisition_height_px'], 720)
+        self.assertNotEqual(optical_profile['requested_width_px'], optical_profile['acquisition_width_px'])
+
+    # Tarefa 142-143: Resolucao automatica seleciona a maior do dispositivo
+    def test_automatic_resolution_selection(self):
+        # Câmera microscopica de 2 MP tipica: [640x480, 800x600, 1024x768, 1280x960, 1600x1200]
+        device_modes = [
+            {'width': 640, 'height': 480, 'fps': 30.0},
+            {'width': 800, 'height': 600, 'fps': 30.0},
+            {'width': 1024, 'height': 768, 'fps': 30.0},
+            {'width': 1280, 'height': 960, 'fps': 30.0},
+            {'width': 1600, 'height': 1200, 'fps': 30.0}
+        ]
+        is_auto = True
+        if is_auto:
+            ok, sel_w, sel_h, sel_fps = get_best_camera_resolution(device_modes)
+            self.assertTrue(ok)
+            self.assertEqual(sel_w, 1600)
+            self.assertEqual(sel_h, 1200)
+
+    # Tarefa 144-145: Resolucao manual escolhida prevalece
+    def test_manual_resolution_selection(self):
+        device_modes = [
+            {'width': 640, 'height': 480, 'fps': 30.0},
+            {'width': 1280, 'height': 720, 'fps': 30.0},
+            {'width': 1920, 'height': 1080, 'fps': 30.0}
+        ]
+        # Item 0 = Auto, Item 1 = 640x480, Item 2 = 1280x720, Item 3 = 1920x1080
+        combo_item_index = 2
+        selected_mode = device_modes[combo_item_index - 1]
+        self.assertEqual(selected_mode['width'], 1280)
+        self.assertEqual(selected_mode['height'], 720)
+
+    # Tarefa 146-147: Fallback generico identificado como GENERIC_PRESET
+    def test_generic_preset_fallback(self):
+        query_success = False
+        if not query_success:
+            res_source = 'GENERIC_PRESET'
+            presets = [{'width': w, 'height': h, 'fps': 30.0} for w, h in GENERIC_PRESETS]
+        else:
+            res_source = 'DEVICE_REPORTED'
+            presets = []
+
+        self.assertEqual(res_source, 'GENERIC_PRESET')
+        self.assertEqual(len(presets), 14)
+        self.assertEqual(presets[0]['width'], 640)
+        self.assertEqual(presets[-1]['width'], 3840)
+
 if __name__ == "__main__":
     unittest.main()

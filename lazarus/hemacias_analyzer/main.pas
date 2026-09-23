@@ -131,6 +131,7 @@ type
     // Painel Óptico, Calibração e Câmera
     FCbSource: TComboBox;
     FCbCameras: TComboBox;
+    FCbCameraResolution: TComboBox;
     FBtnRefreshCameras: TButton;
     FBtnCaptureCamera: TButton;
     FCbObjective: TComboBox;
@@ -192,6 +193,13 @@ type
     FCalibStep: Integer;
     FCalibMethodPending: string;
     FLblCalibMethod: TLabel;
+    FCameraResolutions: TCameraResolutionArray;
+    FSelectedCameraWidth: Integer;
+    FSelectedCameraHeight: Integer;
+    FSelectedCameraFPS: Double;
+    FActualCameraWidth: Integer;
+    FActualCameraHeight: Integer;
+    FCameraResolutionSource: string;
 
     // Estado de Morfometria, Laboratório e Câmeras
     FCellMeasurements: TCellMeasurementArray;
@@ -223,6 +231,9 @@ type
 
     // Novos Handlers
     procedure SourceChange(Sender: TObject);
+    procedure CameraChange(Sender: TObject);
+    procedure CameraResolutionChange(Sender: TObject);
+    procedure UpdateCameraResolutionProfile;
     procedure ObjectiveChange(Sender: TObject);
     procedure UpdateTheoreticalScale;
     procedure RefreshCamerasClick(Sender: TObject);
@@ -605,28 +616,39 @@ begin
   FCbSource.OnChange := @SourceChange;
 
   L := TLabel.Create(Self); L.Parent := FOpticsPanel;
-  L.SetBounds(143, 8, 50, 20); L.Caption := 'Câmera:';
+  L.SetBounds(140, 8, 50, 20); L.Caption := 'Câmera:';
   FCbCameras := TComboBox.Create(Self); FCbCameras.Parent := FOpticsPanel;
-  FCbCameras.SetBounds(195, 5, 145, 27);
+  FCbCameras.SetBounds(190, 5, 140, 27);
   FCbCameras.Style := csDropDownList;
   FCbCameras.Enabled := False;
+  FCbCameras.OnChange := @CameraChange;
+
+  L := TLabel.Create(Self); L.Parent := FOpticsPanel;
+  L.SetBounds(336, 8, 65, 20); L.Caption := 'Resolução:';
+  FCbCameraResolution := TComboBox.Create(Self); FCbCameraResolution.Parent := FOpticsPanel;
+  FCbCameraResolution.SetBounds(403, 5, 225, 27);
+  FCbCameraResolution.Style := csDropDownList;
+  FCbCameraResolution.Items.Add('Automática / Melhor disponível');
+  FCbCameraResolution.ItemIndex := 0;
+  FCbCameraResolution.OnChange := @CameraResolutionChange;
+  FCbCameraResolution.Enabled := False;
 
   FBtnRefreshCameras := TButton.Create(Self); FBtnRefreshCameras.Parent := FOpticsPanel;
-  FBtnRefreshCameras.SetBounds(345, 4, 75, 29);
+  FBtnRefreshCameras.SetBounds(634, 4, 70, 29);
   FBtnRefreshCameras.Caption := 'Atualizar';
   FBtnRefreshCameras.OnClick := @RefreshCamerasClick;
   FBtnRefreshCameras.Enabled := False;
 
   FBtnCaptureCamera := TButton.Create(Self); FBtnCaptureCamera.Parent := FOpticsPanel;
-  FBtnCaptureCamera.SetBounds(425, 4, 75, 29);
+  FBtnCaptureCamera.SetBounds(708, 4, 70, 29);
   FBtnCaptureCamera.Caption := 'Capturar';
   FBtnCaptureCamera.OnClick := @CaptureCameraClick;
   FBtnCaptureCamera.Enabled := False;
 
   L := TLabel.Create(Self); L.Parent := FOpticsPanel;
-  L.SetBounds(510, 8, 55, 20); L.Caption := 'Objetiva:';
+  L.SetBounds(784, 8, 55, 20); L.Caption := 'Objetiva:';
   FCbObjective := TComboBox.Create(Self); FCbObjective.Parent := FOpticsPanel;
-  FCbObjective.SetBounds(568, 5, 105, 27);
+  FCbObjective.SetBounds(841, 5, 95, 27);
   FCbObjective.Style := csDropDownList;
   FCbObjective.Items.Add('10x');
   FCbObjective.Items.Add('20x');
@@ -637,13 +659,13 @@ begin
   FCbObjective.OnChange := @ObjectiveChange;
 
   L := TLabel.Create(Self); L.Parent := FOpticsPanel;
-  L.SetBounds(683, 8, 85, 20); L.Caption := 'Escala (µm/px):';
+  L.SetBounds(942, 8, 85, 20); L.Caption := 'Escala (µm/px):';
   FEdScaleUmPerPx := TEdit.Create(Self); FEdScaleUmPerPx.Parent := FOpticsPanel;
-  FEdScaleUmPerPx.SetBounds(773, 5, 75, 27);
+  FEdScaleUmPerPx.SetBounds(1030, 5, 75, 27);
   FEdScaleUmPerPx.Text := FormatFloat('0.00000', FActiveScaleUmPerPx);
 
   FBtnCalibrate := TButton.Create(Self); FBtnCalibrate.Parent := FOpticsPanel;
-  FBtnCalibrate.SetBounds(855, 4, 130, 29);
+  FBtnCalibrate.SetBounds(1110, 4, 130, 29);
   FBtnCalibrate.Caption := 'Calibrar por régua';
   FBtnCalibrate.OnClick := @CalibrateClick;
 
@@ -1160,6 +1182,122 @@ begin
   end;
 end;
 
+
+procedure TfrmMain.CameraChange(Sender: TObject);
+var
+  CamIdx, I: Integer;
+  ResText: string;
+  MP: Double;
+begin
+  if (FCbCameras.Items.Count = 0) or (FCbCameras.ItemIndex < 0) or
+     (FCbCameras.Text = 'Nenhuma câmera encontrada') then
+  begin
+    FCbCameraResolution.Items.Clear;
+    FCbCameraResolution.Items.Add('Automática / Melhor disponível');
+    FCbCameraResolution.ItemIndex := 0;
+    FCbCameraResolution.Enabled := False;
+    Exit;
+  end;
+
+  CamIdx := FCbCameras.ItemIndex;
+  if CamIdx <= High(FCameras) then
+    CamIdx := FCameras[CamIdx].Index;
+
+  FCbCameraResolution.Items.Clear;
+  FCbCameraResolution.Items.Add('Automática / Melhor disponível');
+
+  if ListCameraResolutions(CamIdx, FCameraResolutions, FCameraResolutionSource) then
+  begin
+    for I := 0 to High(FCameraResolutions) do
+    begin
+      MP := ResolutionMegapixels(FCameraResolutions[I].Width, FCameraResolutions[I].Height);
+      if FCameraResolutions[I].FPS > 0.0 then
+        ResText := Format('%d x %d (~%.2f MP) @ %.0f fps',
+          [FCameraResolutions[I].Width, FCameraResolutions[I].Height, MP, FCameraResolutions[I].FPS])
+      else
+        ResText := Format('%d x %d (~%.2f MP)',
+          [FCameraResolutions[I].Width, FCameraResolutions[I].Height, MP]);
+
+      FCbCameraResolution.Items.Add(ResText);
+    end;
+  end;
+
+  FCbCameraResolution.ItemIndex := 0;
+  FCbCameraResolution.Enabled := True;
+  CameraResolutionChange(nil);
+
+  if FCameraResolutionSource = 'DEVICE_REPORTED' then
+  begin
+    SetStatus(Format('Resoluções detectadas diretamente da câmera (%d modos). Melhor: %dx%d.',
+      [Length(FCameraResolutions), FSelectedCameraWidth, FSelectedCameraHeight]));
+    Log(Format('Câmera %d selecionada. %d resoluções suportadas detectadas.', [CamIdx, Length(FCameraResolutions)]));
+  end
+  else
+  begin
+    SetStatus('Modos da câmera não puderam ser consultados. Usando presets genéricos.');
+    Log(Format('Câmera %d selecionada. Usando presets genéricos de resolução.', [CamIdx]));
+  end;
+end;
+
+procedure TfrmMain.CameraResolutionChange(Sender: TObject);
+var
+  Idx, CamIdx: Integer;
+begin
+  CamIdx := FCbCameras.ItemIndex;
+  if (CamIdx >= 0) and (CamIdx <= High(FCameras)) then
+    CamIdx := FCameras[CamIdx].Index
+  else
+    CamIdx := 0;
+
+  if FCbCameraResolution.ItemIndex <= 0 then
+  begin
+    // Modo 0: Automática / Melhor disponível
+    if not GetBestCameraResolution(CamIdx, FSelectedCameraWidth, FSelectedCameraHeight, FSelectedCameraFPS) then
+    begin
+      FSelectedCameraWidth := 1920;
+      FSelectedCameraHeight := 1080;
+      FSelectedCameraFPS := 30.0;
+    end;
+  end
+  else
+  begin
+    Idx := FCbCameraResolution.ItemIndex - 1;
+    if (Idx >= 0) and (Idx <= High(FCameraResolutions)) then
+    begin
+      FSelectedCameraWidth := FCameraResolutions[Idx].Width;
+      FSelectedCameraHeight := FCameraResolutions[Idx].Height;
+      FSelectedCameraFPS := FCameraResolutions[Idx].FPS;
+    end;
+  end;
+
+  FOpticalProfile.RequestedWidthPX := FSelectedCameraWidth;
+  FOpticalProfile.RequestedHeightPX := FSelectedCameraHeight;
+  FOpticalProfile.CameraFPS := FSelectedCameraFPS;
+  FOpticalProfile.ResolutionSource := FCameraResolutionSource;
+end;
+
+procedure TfrmMain.UpdateCameraResolutionProfile;
+begin
+  FOpticalProfile.CameraWidth := FActualCameraWidth;
+  FOpticalProfile.CameraHeight := FActualCameraHeight;
+  FOpticalProfile.AcquisitionWidthPX := FActualCameraWidth;
+  FOpticalProfile.AcquisitionHeightPX := FActualCameraHeight;
+  FOpticalProfile.RequestedWidthPX := FSelectedCameraWidth;
+  FOpticalProfile.RequestedHeightPX := FSelectedCameraHeight;
+  FOpticalProfile.CameraFPS := FSelectedCameraFPS;
+  FOpticalProfile.ResolutionSource := FCameraResolutionSource;
+
+  if (FOpticalProfile.RequestedWidthPX = FOpticalProfile.AcquisitionWidthPX) and
+     (FOpticalProfile.RequestedHeightPX = FOpticalProfile.AcquisitionHeightPX) then
+    Log(Format('Resolução confirmada pelo dispositivo: %dx%d.', [FActualCameraWidth, FActualCameraHeight]))
+  else
+    Log(Format('A câmera retornou resolução diferente da solicitada. Solicitada: %dx%d | Recebida: %dx%d.',
+      [FOpticalProfile.RequestedWidthPX, FOpticalProfile.RequestedHeightPX,
+       FOpticalProfile.AcquisitionWidthPX, FOpticalProfile.AcquisitionHeightPX]));
+
+  UpdateTheoreticalScale;
+end;
+
 procedure TfrmMain.RefreshCamerasClick(Sender: TObject);
 var
   I: Integer;
@@ -1187,6 +1325,7 @@ begin
     FCbCameras.ItemIndex := 0;
     FCbCameras.Enabled := True;
     FBtnCaptureCamera.Enabled := True;
+    CameraChange(nil);
   end;
   SetStatus(Format('%d câmera(s) detectada(s) (DirectShow Win7+ / TAICaptureSource).', [Length(FCameras)]));
   Log(Format('Câmera selecionada: %s', [FCbCameras.Items[0]]));
@@ -1210,11 +1349,14 @@ begin
   ForceDirectories(OutDir);
   OutFile := OutDir + PathDelim + 'captura_' + FormatDateTime('yyyymmdd_hhnnss', Now) + '.bmp';
 
-  SetStatus('Capturando quadro via TAICaptureSource (CHATGPT)...');
+  if FSelectedCameraWidth <= 0 then FSelectedCameraWidth := 1920;
+  if FSelectedCameraHeight <= 0 then FSelectedCameraHeight := 1080;
+
+  SetStatus(Format('Capturando em %dx%d...', [FSelectedCameraWidth, FSelectedCameraHeight]));
   Screen.Cursor := crHourGlass;
   Application.ProcessMessages;
   try
-    if not CaptureCameraFrame(CamIdx, 1920, 1080, Self.Handle, OutFile, CapturedPath) then
+    if not CaptureCameraFrame(CamIdx, FSelectedCameraWidth, FSelectedCameraHeight, Self.Handle, OutFile, CapturedPath) then
     begin
       ShowMessage('Falha ao capturar imagem da câmera com TAICaptureSource.');
       SetStatus('Falha na captura da câmera.');
@@ -1225,6 +1367,18 @@ begin
     FCurrentImage := CapturedPath;
     FEdImage.Text := FCurrentImage;
     FImage.Picture.LoadFromFile(FCurrentImage);
+
+    if (FImage.Picture.Graphic <> nil) and (FImage.Picture.Graphic.Width > 0) then
+    begin
+      FActualCameraWidth := FImage.Picture.Graphic.Width;
+      FActualCameraHeight := FImage.Picture.Graphic.Height;
+    end
+    else
+    begin
+      FActualCameraWidth := FSelectedCameraWidth;
+      FActualCameraHeight := FSelectedCameraHeight;
+    end;
+    UpdateCameraResolutionProfile;
     SetLength(FObjects, 0);
     SetLength(FSummaries, 0);
     SetLength(FCellMeasurements, 0);
@@ -1241,8 +1395,8 @@ begin
     FBtnAIReport.Enabled := False;
     FBtnSend.Enabled := False;
     FMemo.Clear;
-    Log('Quadro capturado via TAICaptureSource e carregado: ' + FCurrentImage);
-    SetStatus('Imagem da câmera capturada com sucesso e pronta para análise.');
+    Log(Format('Quadro capturado e carregado: %s (%dx%d)', [FCurrentImage, FActualCameraWidth, FActualCameraHeight]));
+    SetStatus(Format('Captura concluída: %dx%d.', [FActualCameraWidth, FActualCameraHeight]));
   finally
     Screen.Cursor := crDefault;
   end;
@@ -2106,6 +2260,44 @@ begin
         [FPatientID, FSampleID, FProtocolCode]));
     S.Add('Imagem: ' + FCurrentImage);
     S.Add('Modelo: ' + FYolo.ModelPath);
+    S.Add('');
+    S.Add('=== CÂMERA E AQUISIÇÃO ===');
+    S.Add('');
+    S.Add('Câmera selecionada:');
+    if (FCbCameras.Items.Count > 0) and (FCbCameras.ItemIndex >= 0) then
+      S.Add(FCbCameras.Text)
+    else
+      S.Add(FOpticalProfile.CameraName);
+    S.Add('');
+    S.Add('Seleção de resolução:');
+    if (FCbCameraResolution <> nil) and (FCbCameraResolution.ItemIndex = 0) then
+      S.Add('AUTOMÁTICA')
+    else
+      S.Add('MANUAL');
+    S.Add('');
+    S.Add('Resolução solicitada:');
+    S.Add(Format('%d x %d', [FOpticalProfile.RequestedWidthPX, FOpticalProfile.RequestedHeightPX]));
+    S.Add('');
+    S.Add('Resolução capturada:');
+    S.Add(Format('%d x %d', [FOpticalProfile.AcquisitionWidthPX, FOpticalProfile.AcquisitionHeightPX]));
+    S.Add('');
+    S.Add('Resolução aproximada:');
+    S.Add(Format('%.2f MP', [ResolutionMegapixels(FOpticalProfile.AcquisitionWidthPX, FOpticalProfile.AcquisitionHeightPX)]));
+    S.Add('');
+    if FOpticalProfile.CameraFPS > 0.0 then
+    begin
+      S.Add('FPS informado pelo dispositivo:');
+      S.Add(Format('%.0f fps', [FOpticalProfile.CameraFPS]));
+      S.Add('');
+    end;
+    S.Add('Modos da câmera:');
+    if FOpticalProfile.ResolutionSource <> '' then
+      S.Add(FOpticalProfile.ResolutionSource)
+    else
+      S.Add('DEVICE_REPORTED');
+    S.Add('');
+    S.Add('imgsz YOLO interno:');
+    S.Add(IntToStr(ImageSizeValue));
     if FModelVersion <> '' then S.Add('Versão cadastrada: ' + FModelVersion);
     S.Add('Confiança global mínima: ' + FormatFloat('0.000', FYolo.ConfidenceThreshold));
     if FYolo.ImageSize > 0 then S.Add('imgsz: ' + IntToStr(FYolo.ImageSize));

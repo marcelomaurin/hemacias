@@ -20,11 +20,240 @@ type
   end;
   TCameraDeviceArray = array of TCameraDeviceInfo;
 
+  TCameraResolution = record
+    Width: Integer;
+    Height: Integer;
+    FPS: Double;
+  end;
+  TCameraResolutionArray = array of TCameraResolution;
+
 function ListConnectedCameras(out ACameras: TCameraDeviceArray): Boolean;
+function ListCameraResolutions(ACameraIndex: Integer;
+  out AResolutions: TCameraResolutionArray; out ASource: string): Boolean; overload;
+function ListCameraResolutions(ACameraIndex: Integer;
+  out AResolutions: TCameraResolutionArray): Boolean; overload;
+function GetBestCameraResolution(ACameraIndex: Integer;
+  out AWidth: Integer; out AHeight: Integer; out AFPS: Double): Boolean;
+function ResolutionMegapixels(AWidth, AHeight: Integer): Double;
+
+
 function CaptureCameraFrame(ACameraIndex, AWidth, AHeight: Integer;
   AParentHandle: THandle; const AOutputFile: string; out ACapturedPath: string): Boolean;
 
 implementation
+
+function FindCameraScript: string; forward;
+
+function ResolutionMegapixels(AWidth, AHeight: Integer): Double;
+begin
+  if (AWidth <= 0) or (AHeight <= 0) then
+    Result := 0.0
+  else
+    Result := (Double(AWidth) * Double(AHeight)) / 1000000.0;
+end;
+
+procedure SortAndFilterResolutions(var ARes: TCameraResolutionArray);
+var
+  I, J, K, N: Integer;
+  Tmp: TCameraResolution;
+  Duplicate: Boolean;
+  Filtered: TCameraResolutionArray;
+begin
+  N := Length(ARes);
+  if N <= 0 then Exit;
+
+  // 1. Remove modos invalidos (<= 0)
+  SetLength(Filtered, 0);
+  for I := 0 to N - 1 do
+  begin
+    if (ARes[I].Width > 0) and (ARes[I].Height > 0) then
+    begin
+      Duplicate := False;
+      for J := 0 to High(Filtered) do
+      begin
+        if (Filtered[J].Width = ARes[I].Width) and (Filtered[J].Height = ARes[I].Height) then
+        begin
+          Duplicate := True;
+          // Mantem preferencialmente o maior FPS
+          if ARes[I].FPS > Filtered[J].FPS then
+            Filtered[J].FPS := ARes[I].FPS;
+          Break;
+        end;
+      end;
+      if not Duplicate then
+      begin
+        SetLength(Filtered, Length(Filtered) + 1);
+        Filtered[High(Filtered)] := ARes[I];
+      end;
+    end;
+  end;
+
+  // 2. Ordena por quantidade total de pixels (Width * Height) do menor para o maior
+  for I := 0 to High(Filtered) - 1 do
+  begin
+    for J := I + 1 to High(Filtered) do
+    begin
+      if (Int64(Filtered[J].Width) * Int64(Filtered[J].Height) < Int64(Filtered[I].Width) * Int64(Filtered[I].Height)) or
+         ((Int64(Filtered[J].Width) * Int64(Filtered[J].Height) = Int64(Filtered[I].Width) * Int64(Filtered[I].Height)) and
+          (Filtered[J].FPS < Filtered[I].FPS)) then
+      begin
+        Tmp := Filtered[I];
+        Filtered[I] := Filtered[J];
+        Filtered[J] := Tmp;
+      end;
+    end;
+  end;
+
+  ARes := Filtered;
+end;
+
+procedure SetGenericResolutionPresets(out AResolutions: TCameraResolutionArray);
+const
+  Presets: array[0..13, 0..1] of Integer = (
+    (640, 480),
+    (800, 600),
+    (1024, 768),
+    (1280, 720),
+    (1280, 960),
+    (1280, 1024),
+    (1600, 1200),
+    (1920, 1080),
+    (1920, 1200),
+    (2048, 1536),
+    (2560, 1440),
+    (2592, 1944),
+    (3264, 2448),
+    (3840, 2160)
+  );
+var
+  I: Integer;
+begin
+  SetLength(AResolutions, Length(Presets));
+  for I := 0 to High(Presets) do
+  begin
+    AResolutions[I].Width := Presets[I, 0];
+    AResolutions[I].Height := Presets[I, 1];
+    AResolutions[I].FPS := 30.0;
+  end;
+  SortAndFilterResolutions(AResolutions);
+end;
+
+function ListResolutionsViaPython(ACameraIndex: Integer;
+  out AResolutions: TCameraResolutionArray; out ASource: string): Boolean;
+var
+  ScriptPath, OutStr: string;
+  Args: array of string;
+  JSON: TJSONData;
+  Obj, ResObj: TJSONObject;
+  Arr: TJSONArray;
+  I: Integer;
+begin
+  Result := False;
+  SetLength(AResolutions, 0);
+  ASource := 'GENERIC_PRESET';
+  ScriptPath := FindCameraScript;
+  if (ScriptPath = '') or not FileExists(ScriptPath) then Exit;
+
+  SetLength(Args, 4);
+  Args[0] := ScriptPath;
+  Args[1] := '--resolutions';
+  Args[2] := '--camera';
+  Args[3] := IntToStr(ACameraIndex);
+
+  OutStr := '';
+  if not RunCommand('python', Args, OutStr) then
+    if not RunCommand('python3', Args, OutStr) then
+      if not RunCommand('py', Args, OutStr) then
+        Exit;
+
+  try
+    JSON := GetJSON(OutStr);
+    try
+      if (JSON <> nil) and (JSON is TJSONObject) then
+      begin
+        Obj := TJSONObject(JSON);
+        if Obj.Get('ok', False) and (Obj.Find('resolutions') is TJSONArray) then
+        begin
+          Arr := TJSONArray(Obj.Find('resolutions'));
+          SetLength(AResolutions, Arr.Count);
+          for I := 0 to Arr.Count - 1 do
+          begin
+            ResObj := TJSONObject(Arr[I]);
+            AResolutions[I].Width := ResObj.Get('width', 0);
+            AResolutions[I].Height := ResObj.Get('height', 0);
+            AResolutions[I].FPS := ResObj.Get('fps', 30.0);
+          end;
+          SortAndFilterResolutions(AResolutions);
+          if Length(AResolutions) > 0 then
+          begin
+            ASource := Obj.Get('source', 'DEVICE_REPORTED');
+            Result := True;
+          end;
+        end;
+      end;
+    finally
+      JSON.Free;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+function ListCameraResolutions(ACameraIndex: Integer;
+  out AResolutions: TCameraResolutionArray; out ASource: string): Boolean;
+begin
+  // 1. Tenta consulta direta via backend do dispositivo (OpenCV/DirectShow via script Python)
+  if ListResolutionsViaPython(ACameraIndex, AResolutions, ASource) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  // 2. Se a consulta aos modos do driver falhar, usa os presets genéricos padronizados
+  SetGenericResolutionPresets(AResolutions);
+  ASource := 'GENERIC_PRESET';
+  Result := True;
+end;
+
+function ListCameraResolutions(ACameraIndex: Integer;
+  out AResolutions: TCameraResolutionArray): Boolean;
+var
+  DummySource: string;
+begin
+  Result := ListCameraResolutions(ACameraIndex, AResolutions, DummySource);
+end;
+
+function GetBestCameraResolution(ACameraIndex: Integer;
+  out AWidth: Integer; out AHeight: Integer; out AFPS: Double): Boolean;
+var
+  ResList: TCameraResolutionArray;
+  BestPixels, CurPixels: Int64;
+  I: Integer;
+begin
+  AWidth := 1920;
+  AHeight := 1080;
+  AFPS := 30.0;
+  Result := False;
+
+  if not ListCameraResolutions(ACameraIndex, ResList) or (Length(ResList) = 0) then
+    Exit;
+
+  BestPixels := -1;
+  for I := 0 to High(ResList) do
+  begin
+    CurPixels := Int64(ResList[I].Width) * Int64(ResList[I].Height);
+    if (CurPixels > BestPixels) or
+       ((CurPixels = BestPixels) and (ResList[I].FPS > AFPS)) then
+    begin
+      BestPixels := CurPixels;
+      AWidth := ResList[I].Width;
+      AHeight := ResList[I].Height;
+      AFPS := ResList[I].FPS;
+      Result := True;
+    end;
+  end;
+end;
+
 
 const
   CLSID_SystemDeviceEnum: TGUID = '{62BE5D10-60EB-11d0-BD3B-00A0C911CE86}';

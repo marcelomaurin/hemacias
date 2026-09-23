@@ -128,6 +128,10 @@ begin
   Result.AnalysisHeightPX := Max(1, AAnalysisH);
   Result.ResizeFactorX := CalculateResizeFactor(Result.AcquisitionWidthPX, Result.AnalysisWidthPX);
   Result.ResizeFactorY := CalculateResizeFactor(Result.AcquisitionHeightPX, Result.AnalysisHeightPX);
+  Result.RequestedWidthPX := Result.AcquisitionWidthPX;
+  Result.RequestedHeightPX := Result.AcquisitionHeightPX;
+  Result.CameraFPS := 30.0;
+  Result.ResolutionSource := 'DEVICE_REPORTED';
   CalculateEffectiveScale(Result, Result.EffectivePixelSizeXUM, Result.EffectivePixelSizeYUM);
 
   if ACalibratedScale > 0.00001 then
@@ -168,6 +172,10 @@ begin
   Result.Add('resize_factor_y', P.ResizeFactorY);
   Result.Add('effective_pixel_size_x_um', P.EffectivePixelSizeXUM);
   Result.Add('effective_pixel_size_y_um', P.EffectivePixelSizeYUM);
+  Result.Add('requested_width_px', P.RequestedWidthPX);
+  Result.Add('requested_height_px', P.RequestedHeightPX);
+  Result.Add('camera_fps', P.CameraFPS);
+  Result.Add('resolution_source', P.ResolutionSource);
   Result.Add('active', P.Active);
   Result.Add('calibrated_at', FormatDateTime('yyyy-mm-dd hh:nn:ss', P.CalibratedAt));
 end;
@@ -242,6 +250,11 @@ begin
     Result.TheoreticalPixelSizeUM * Result.ResizeFactorX);
   Result.EffectivePixelSizeYUM := GetF('effective_pixel_size_y_um',
     Result.TheoreticalPixelSizeUM * Result.ResizeFactorY);
+
+  Result.RequestedWidthPX := GetI('requested_width_px', Result.AcquisitionWidthPX);
+  Result.RequestedHeightPX := GetI('requested_height_px', Result.AcquisitionHeightPX);
+  Result.CameraFPS := GetF('camera_fps', 30.0);
+  Result.ResolutionSource := GetS('resolution_source', 'DEVICE_REPORTED');
 
   Result.CalibratedPixelSizeUM := GetF('calibrated_pixel_size_um', Result.EffectivePixelSizeXUM);
   Result.CalibrationMethod := GetS('calibration_method', 'THEORETICAL');

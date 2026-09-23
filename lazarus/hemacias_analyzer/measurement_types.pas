@@ -18,11 +18,19 @@ type
     ObjectiveMagnification: Double;
     AdapterMagnification: Double;
     SensorPixelSizeUM: Double;
-    TheoreticalPixelSizeUM: Double;
+    TheoreticalPixelSizeUM: Double; // Escala óptica teórica (sensor / (obj * adapter))
     CalibratedPixelSizeUM: Double;
-    CalibrationMethod: string; // 'THEORETICAL', 'STAGE_MICROMETER', 'MANUAL'
+    CalibrationMethod: string; // 'STAGE_MICROMETER', 'SCALE_BAR', 'MANUAL', 'THEORETICAL', 'ESTIMATED_REFERENCE'
     CalibrationReferenceUM: Double;
     CalibrationReferencePX: Double;
+    AcquisitionWidthPX: Integer;
+    AcquisitionHeightPX: Integer;
+    AnalysisWidthPX: Integer;
+    AnalysisHeightPX: Integer;
+    EffectivePixelSizeXUM: Double;
+    EffectivePixelSizeYUM: Double;
+    ResizeFactorX: Double;
+    ResizeFactorY: Double;
     Active: Boolean;
     CalibratedAt: TDateTime;
   end;
@@ -41,6 +49,7 @@ type
     MajorAxisPX: Double;
     MinorAxisPX: Double;
     Circularity: Double;
+    RawCircularity: Double;
     AspectRatio: Double;
     AreaUM2: Double;
     PerimeterUM: Double;
@@ -50,6 +59,7 @@ type
     TouchesBorder: Boolean;
     MeasurementValid: Boolean;
     MeasurementReason: string;
+    GeometrySource: string; // 'MASK', 'POLYGON', 'BOUNDING_BOX_ESTIMATE'
     Source: string; // 'AI', 'HUMAN_REVIEW', 'CALCULATED'
   end;
   TCellMeasurementArray = array of TCellMeasurement;
@@ -59,6 +69,8 @@ type
     CellCount: Integer;
     ValidCellCount: Integer;
     ExcludedBorderCount: Integer;
+    BoundingBoxOnlyCount: Integer;
+    ValidSegmentationCount: Integer;
     MeanDiameterUM: Double;
     MedianDiameterUM: Double;
     StdDevDiameterUM: Double;

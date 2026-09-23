@@ -1,98 +1,98 @@
-# Hemácias Analyzer — Lazarus (AI Suite + Morfometria Óptica)
+# Hemácias Analyzer — Lazarus (AI Suite + Morfometria Óptica & Calibração Metrológica)
 
-Aplicação desktop profissional para análise microscópica, contagem celular multiclasse, calibração óptica física, morfometria individual e populacional de hemácias, e cálculo de índices hematológicos clínicos a partir de dados laboratoriais externos.
+Aplicação desktop profissional para análise microscópica, contagem celular multiclasse, calibração óptica física, morfometria individual e populacional de hemácias com PCA invariante à rotação, e cálculo de índices hematológicos clínicos a partir de dados laboratoriais externos.
 
 Utiliza a suíte Lazarus AI do repositório `marcelomaurin/CHATGPT`.
 
 ---
 
-## 1. Funcionalidades Principais
+## 1. Princípio Fundamental de Calibração e Morfometria
 
-1. **Pipeline Unificado de Entrada**:
-   - **Arquivo**: carregamento de fotografias microscópicas do disco (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.webp`).
-   - **Câmera ao Vivo**: detecção de dispositivos USB/DShow e captura direta de quadros do microscópio óptico.
-2. **Sistema de Calibração Óptica**:
-   - Perfis ópticos por objetiva: `10x`, `20x`, `40x (padrão)`, `100x (imersão)` ou `Personalizada`.
-   - Parâmetros físicos: magnificação do adaptador de câmera e tamanho do pixel do sensor (ex: 3,45 µm).
-   - Cálculo automático da escala teórica: $\text{escala} = \frac{\text{pixel\_sensor}}{\text{objetiva} \times \text{adaptador}}$.
-   - **Calibração por Régua Micrométrica**: seleção de 2 pontos na lâmina padrão com cálculo preciso em $\mu m/\text{pixel}$ ($D_{px} = \sqrt{\Delta x^2 + \Delta y^2}$; $\text{escala} = \text{dist\_um} / D_{px}$).
-3. **Morfometria Individual e Populacional**:
-   - **Área** (Shoelace Formula em pixels e $\mu m^2$).
-   - **Perímetro** (soma euclidiana de vértices ou elipse de Ramanujan em pixels e $\mu m$).
-   - **Diâmetro Equivalente** ($D_{eq} = 2\sqrt{A/\pi}$ em pixels e $\mu m$).
-   - **Circularidade** ($4\pi A / P^2$, onde 1.0 = círculo perfeito).
-   - **Eixos Maior e Menor** e razão de aspecto.
-   - **Filtro de Células de Borda**: detecção automática de hemácias seccionadas nas margens da imagem. As medições individuais são preservadas, mas excluídas das estatísticas populacionais para não distorcer a distribuição de tamanho.
-   - **Estatísticas Populacionais**: Média, Desvio Padrão, Mediana, Mínimo, Máximo, Percentis P10, P25, P75, P90.
-   - **CV do Diâmetro Microscópico**: Coeficiente de variação geométrica das hemácias na lâmina ($DP / \text{Média} \times 100$). **Nota**: Representa a dispersão microscópica local e não deve ser rotulado como o RDW clínico laboratorial.
-4. **Camadas Visuais (Overlays)**:
-   - Alternância independente de **Contornos** (polígonos YOLO), **IDs** numéricos das células e **Diâmetros** calculados em $\mu m$.
-   - **Barra de Escala Dinâmica**: renderizada no canto da imagem com calibração automática ($5, 10, 20, 50, 100\,\mu m$).
-5. **Módulo de Índices Hematológicos Clínicos**:
-   - Entrada de parâmetros externos obtidos de contador hematológico automatizado:
-     - **Hemácias (RBC)** em $10^6/\mu L$
-     - **Hemoglobina (Hb)** em $g/dL$
-     - **Hematócrito (Hct)** em $\%$
-   - Cálculo rigoroso conforme fórmulas clínicas oficiais de Wintrobe:
-     - $\text{VCM} = \frac{\text{Hct} \times 10}{\text{RBC}}\,(fL)$ (Ref: 80 - 100 fL)
-     - $\text{HCM} = \frac{\text{Hb} \times 10}{\text{RBC}}\,(pg)$ (Ref: 27 - 32 pg)
-     - $\text{CHCM} = \frac{\text{Hb} \times 100}{\text{Hct}}\,(g/dL)$ (Ref: 32 - 36 g/dL)
-   - **Aviso Metodológico**: O sistema nunca infere hemoglobina ou VCM clínico a partir de geometria 2D de microscopia óptica.
-6. **Revisão Humana e Dataset Ground Truth**:
-   - Correção interativa de classes, exclusão de falso-positivos e adição manual de células ausentes com recálculo automático da morfometria.
-   - Persistência das anotações revisadas no dataset web para retreinamento supervisionado.
-7. **Integração Web API e Banco de Dados**:
-   - Envio do campo microscópico contendo o snapshot óptico completo, medições individuais de todas as células e resumo morfométrico.
-   - Migração de banco `011_optical_profiles_and_measurements.sql` com tabelas `optical_profiles`, `cell_measurements` e `sample_hematology`.
+> **Regra Metrológica Central**: Nunca ajustar a escala para fazer a hemácia "dar 7,5 µm". A escala de medição deve derivar estritamente da óptica física (sensor, objetiva, adaptador), da relação de resolução aquisição/análise e, preferencialmente, de uma calibração física com padrão de rastreabilidade (micrômetro de lâmina ou barra de escala). O diâmetro e área celulares resultantes são consequência direta e honesta da medição microscópica.
 
 ---
 
-## 2. Requisitos e Compilação
+## 2. Conceitos Ópticos e Fórmulas de Escala
 
-- **Lazarus 3.x** / **Free Pascal 3.2.2** x86_64
-- Pacotes instalados no Lazarus (localizados em `CHATGPT/pacote/packages`):
-  - `openai_core.lpk`
-  - `openai_python.lpk`
-- Ambiente Python com dependências:
-  ```bash
-  pip install ultralytics opencv-python numpy
-  ```
+### 2.1 Escala Óptica Teórica
+Representa a projeção física do sensor no plano focal da amostra sem considerar redimensionamentos digitais posteriores:
+$$\text{Escala Teórica (µm/px)} = \frac{\text{Tamanho do Pixel do Sensor (µm)}}{\text{Magnificação da Objetiva} \times \text{Magnificação do Adaptador}}$$
 
-### Compilação via lazbuild:
-```bash
-lazbuild --build-mode=Default "P:\maurinsoft\hemacias\lazarus\hemacias_analyzer\hemacias_analyzer.lpi"
-```
+*Nota*: A magnificação da ocular visual **NÃO** faz parte do caminho óptico que chega ao sensor da câmera digital.
 
----
+### 2.2 Fator de Redimensionamento (Resize) e Escala Efetiva
+Se a imagem for adquirida em alta resolução (ex: 3840×2160) e analisada em resolução diferente (ex: 1920×1080):
+$$\text{ResizeFactor}_X = \frac{\text{AcquisitionWidth}}{\text{AnalysisWidth}}, \quad \text{ResizeFactor}_Y = \frac{\text{AcquisitionHeight}}{\text{AnalysisHeight}}$$
+$$\text{Escala Efetiva}_X = \text{Escala Teórica} \times \text{ResizeFactor}_X$$
+$$\text{Escala Efetiva}_Y = \text{Escala Teórica} \times \text{ResizeFactor}_Y$$
 
-## 3. Estrutura dos Arquivos Pascal Adicionados
-
-| Arquivo | Descrição |
-|---|---|
-| `measurement_types.pas` | Tipos de dados para perfis ópticos, medições celulares individuais, estatísticas de morfometria e dados hematológicos clínicos. |
-| `morphometry.pas` | Algoritmos de cálculo de área (Shoelace), perímetro, diâmetro equivalente, circularidade, eixos, percentis (QuickSelect), desvio padrão e índices de dispersão. |
-| `calibration.pas` | Cálculo de escala teórica e calibração por micrômetro de lâmina de 2 pontos. |
-| `camera_service.pas` | Integração Pascal com `camera_capture.py` para detecção de câmeras conectadas e captura de quadros. |
-| `camera_capture.py` | Utilitário CLI Python para enumeração e captura de câmeras via OpenCV. |
+### 2.3 Hierarquia de Métodos de Calibração
+A escala de medição utilizada na morfometria obedece à seguinte ordem de precedência:
+1. `STAGE_MICROMETER` (Calibração física com lâmina micrométrica aferida) — **CALIBRATED**
+2. `SCALE_BAR` (Calibração por barra de escala física conhecida na foto) — **CALIBRATED**
+3. `MANUAL` (Valor manual aferido pelo operador) — **CALIBRATED**
+4. `THEORETICAL` (Estimativa baseada nos parâmetros do sensor e lentes) — **ESTIMATED**
+5. `ESTIMATED_REFERENCE` (Referência estimada apenas para visualização provisória) — **ESTIMATED**
 
 ---
 
-## 4. Banco de Dados
+## 3. Exemplos Práticos de Cálculo de Escala
 
-Aplicar a migração:
-```text
-web/migrations/011_optical_profiles_and_measurements.sql
-```
+### Exemplo 1: Escala Teórica Pura (sem resize)
+- Tamanho de pixel do sensor: $3,45\,\mu\text{m}$
+- Objetiva: $40\times$
+- Adaptador de câmera: $1,0\times$
+- Resolução de aquisição e análise: $1920 \times 1080$ ($ResizeFactor = 1,0$)
+- **Escala Teórica**:
+  $$\frac{3,45}{40 \times 1,0} = 0,08625\,\mu\text{m/pixel}$$
 
-Ela adiciona:
-- Tabela `optical_profiles`: armazena configurações de microscópios e calibrações de escala.
-- Tabela `cell_measurements`: armazena área, perímetro, diâmetro equivalente, circularidade e status de borda de cada célula analisada.
-- Tabela `sample_hematology`: armazena dados laboratoriais externos (RBC, Hb, Hct, VCM, HCM, CHCM).
-- Colunas de snapshot óptico na tabela `counts`.
+### Exemplo 2: Escala Efetiva com Redimensionamento Digital
+- Câmera em $4\text{K}$ Ultra HD: aquisição de $3840 \times 2160$ pixels
+- Imagem enviada para inferência e análise: $1920 \times 1080$ pixels
+- Fator de redimensionamento:
+  $$ResizeFactor = \frac{3840}{1920} = 2,0$$
+- **Escala Efetiva**:
+  $$0,08625 \times 2,0 = 0,17250\,\mu\text{m/pixel}$$
+
+### Exemplo 3: Calibração Metrológica Real (Micrômetro de Lâmina)
+- Linha traçada sobre marcações da lâmina padrão: $1813{,}0\text{ pixels}$
+- Distância física padrão correspondente: $100{,}0\,\mu\text{m}$
+- **Escala Calibrada**:
+  $$\frac{100{,}0\,\mu\text{m}}{1813{,}0\text{ px}} = 0,05516\,\mu\text{m/pixel}$$
+- **Classificação de Confiabilidade**: `CALIBRATED` (aprovada para morfometria quantitativa).
 
 ---
 
-## 5. Disclaimer Ético e Científico
+## 4. Morfometria Celular Rigorosa
 
-Este software é destinado a fins de pesquisa, automação e suporte laboratorial.
-O coeficiente de variação do diâmetro celular microscópico calculado sobre imagens 2D não é equivalente e não substitui o índice clínico RDW gerado por contadores hematológicos automatizados. Nenhum resultado automatizado dispensa a validação de um profissional habilitado.
+1. **Área Física ($A_{\mu m^2}$)** com Suporte a Anisotropia:
+   $$A_{\mu m^2} = A_{px} \times \text{Scale}_X \times \text{Scale}_Y$$
+2. **Perímetro Físico Ponto a Ponto**:
+   Cada segmento do polígono $[(x_i, y_i) \to (x_{i+1}, y_{i+1})]$ tem sua distância física integrada:
+   $$P_{\mu m} = \sum \sqrt{(\Delta x \cdot \text{Scale}_X)^2 + (\Delta y \cdot \text{Scale}_Y)^2}$$
+3. **Diâmetro Equivalente Físico ($D_{eq}$)**:
+   $$D_{eq} = 2 \times \sqrt{\frac{A_{\mu m^2}}{\pi}}$$
+4. **Circularidade Bruta e Normalizada**:
+   $$\text{RawCircularity} = \frac{4\pi A_{px}}{P_{px}^2}, \quad \text{Circularity} = \min(1.0, \max(0.0, \text{RawCircularity}))$$
+   Alertas automáticos são registrados caso $\text{RawCircularity} > 1.05$ (indicando artefato de segmentação do contorno) ou $< 0$.
+5. **Eixos Maior e Menor por PCA (Análise de Componentes Principais)**:
+   Em vez de aproximar a célula pela bounding box cartesiana, calcula-se a matriz de covariância $2 \times 2$ dos vértices do contorno celular. Os autovetores determinam os eixos intrínsecos de dispersão, tornando o cálculo **totalmente invariante à rotação da hemácia** (0°, 30°, 45°, 90°).
+6. **Origem da Geometria (`GeometrySource`)**:
+   - `POLYGON`: contorno segmentado real (utilizado nas médias populacionais).
+   - `MASK`: máscara binária de alta precisão.
+   - `BOUNDING_BOX_ESTIMATE`: estimativa provisória por caixa delimitadora quando o contorno poligonal for insuficiente. Células nessa condição são contabilizadas no total detectado, mas recebem `MeasurementValid = False` e são **excluídas das estatísticas morfométricas científicas**.
+
+---
+
+## 5. Banco de Dados e Migrações
+
+- `web/migrations/011_optical_profiles_and_measurements.sql`: Tabelas iniciais de perfis ópticos, medições e dados hematológicos.
+- `web/migrations/012_optical_scale_refinement.sql`: Campos de resolução de aquisição/análise, fatores de resize, escala anisotrópica $X/Y$, circularidade bruta, fonte da geometria e snapshots completos de calibração.
+
+---
+
+## 6. Aviso Científico e Ético
+
+> **AVISO CIENTÍFICO**: O método `THEORETICAL` **NÃO substitui a calibração física por micrômetro de lâmina** para morfometria quantitativa. Lentes de microscópios, tubos e adaptadores C-mount apresentam tolerâncias de fabricação e variações de parfocalidade que podem alterar a escala real em 5% a 20%.
+>
+> Para laudos e estudos científicos quantitativos, utilize sempre o método `STAGE_MICROMETER` ou `SCALE_BAR` (`CALIBRATED`).

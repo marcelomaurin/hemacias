@@ -190,6 +190,8 @@ type
     FCalibPointA: TPoint;
     FCalibPointB: TPoint;
     FCalibStep: Integer;
+    FCalibMethodPending: string;
+    FLblCalibMethod: TLabel;
 
     // Estado de Morfometria, Laboratório e Câmeras
     FCellMeasurements: TCellMeasurementArray;
@@ -645,6 +647,12 @@ begin
   FBtnCalibrate.Caption := 'Calibrar por régua';
   FBtnCalibrate.OnClick := @CalibrateClick;
 
+  FLblCalibMethod := TLabel.Create(Self); FLblCalibMethod.Parent := FOpticsPanel;
+  FLblCalibMethod.SetBounds(683, 43, 310, 20);
+  FLblCalibMethod.Font.Style := [fsBold];
+  FLblCalibMethod.Caption := 'Tipo: ESTIMATIVA TEÓRICA';
+  FLblCalibMethod.Font.Color := clNavy;
+
   // Linha 2 do painel óptico
   L := TLabel.Create(Self); L.Parent := FOpticsPanel;
   L.SetBounds(8, 43, 65, 20); L.Caption := 'Adaptador:';
@@ -769,7 +777,7 @@ begin
   FGridCells := TStringGrid.Create(Self);
   FGridCells.Parent := FTabMorpho;
   FGridCells.SetBounds(8, 278, 435, 250);
-  FGridCells.ColCount := 7;
+  FGridCells.ColCount := 8;
   FGridCells.RowCount := 2;
   FGridCells.FixedRows := 1;
   FGridCells.Cells[0,0] := '#';
@@ -779,6 +787,7 @@ begin
   FGridCells.Cells[4,0] := 'Diâm Eq (µm)';
   FGridCells.Cells[5,0] := 'Circ.';
   FGridCells.Cells[6,0] := 'Borda?';
+  FGridCells.Cells[7,0] := 'Geometria';
   FGridCells.ColWidths[0] := 35;
   FGridCells.ColWidths[1] := 75;
   FGridCells.ColWidths[2] := 70;
@@ -786,6 +795,7 @@ begin
   FGridCells.ColWidths[4] := 75;
   FGridCells.ColWidths[5] := 50;
   FGridCells.ColWidths[6] := 50;
+  FGridCells.ColWidths[7] := 80;
   FGridCells.Options := FGridCells.Options - [goEditing];
 
   // Aba 3: Dados Clínicos Laboratoriais
@@ -1107,16 +1117,46 @@ begin
   AdaptMag := StrToFloatDef(StringReplace(Trim(FEdAdapterMag.Text), ',', '.', [rfReplaceAll]), 1.0, FS);
   PixelUM := StrToFloatDef(StringReplace(Trim(FEdSensorPixel.Text), ',', '.', [rfReplaceAll]), 3.45, FS);
 
+  FOpticalProfile.ObjectiveMagnification := ObjMag;
   FOpticalProfile.AdapterMagnification := AdaptMag;
   FOpticalProfile.SensorPixelSizeUM := PixelUM;
   FOpticalProfile.TheoreticalPixelSizeUM := CalculateTheoreticalScale(ObjMag, AdaptMag, PixelUM);
 
-  // Se não foi calibrado por micrômetro, usa teórico
-  if FOpticalProfile.CalibrationMethod <> 'STAGE_MICROMETER' then
+  CalculateEffectiveScale(FOpticalProfile, FOpticalProfile.EffectivePixelSizeXUM, FOpticalProfile.EffectivePixelSizeYUM);
+
+  if (FOpticalProfile.CalibrationMethod <> 'STAGE_MICROMETER') and
+     (FOpticalProfile.CalibrationMethod <> 'SCALE_BAR') and
+     (FOpticalProfile.CalibrationMethod <> 'MANUAL') then
   begin
-    FOpticalProfile.CalibratedPixelSizeUM := FOpticalProfile.TheoreticalPixelSizeUM;
-    FActiveScaleUmPerPx := FOpticalProfile.TheoreticalPixelSizeUM;
-    FEdScaleUmPerPx.Text := FormatFloat('0.00000', FActiveScaleUmPerPx);
+    FOpticalProfile.CalibrationMethod := 'THEORETICAL';
+    FOpticalProfile.CalibratedPixelSizeUM := FOpticalProfile.EffectivePixelSizeXUM;
+  end;
+
+  FActiveScaleUmPerPx := GetMeasurementScaleX(FOpticalProfile);
+  FEdScaleUmPerPx.Text := FormatFloat('0.00000', FActiveScaleUmPerPx);
+
+  if Assigned(FLblCalibMethod) then
+  begin
+    if FOpticalProfile.CalibrationMethod = 'STAGE_MICROMETER' then
+    begin
+      FLblCalibMethod.Caption := 'CALIBRAÇÃO POR MICRÔMETRO (CALIBRATED)';
+      FLblCalibMethod.Font.Color := clGreen;
+    end
+    else if FOpticalProfile.CalibrationMethod = 'SCALE_BAR' then
+    begin
+      FLblCalibMethod.Caption := 'CALIBRAÇÃO POR BARRA DE ESCALA (CALIBRATED)';
+      FLblCalibMethod.Font.Color := clGreen;
+    end
+    else if FOpticalProfile.CalibrationMethod = 'MANUAL' then
+    begin
+      FLblCalibMethod.Caption := 'CALIBRAÇÃO MANUAL (CALIBRATED)';
+      FLblCalibMethod.Font.Color := clGreen;
+    end
+    else
+    begin
+      FLblCalibMethod.Caption := 'ESTIMATIVA TEÓRICA (ESTIMATED)';
+      FLblCalibMethod.Font.Color := clNavy;
+    end;
   end;
 end;
 
@@ -1209,27 +1249,46 @@ begin
 end;
 
 procedure TfrmMain.CalibrateClick(Sender: TObject);
+var
+  Opt: Integer;
 begin
   if (FCurrentImage = '') or not FileExists(FCurrentImage) or (FImage.Picture.Graphic = nil) then
   begin
-    ShowMessage('Carregue uma imagem ou capture da c' + Chr(226) + 'mera antes de calibrar a r' + Chr(233) + 'gua.');
+    ShowMessage('Carregue uma imagem ou capture da câmera antes de calibrar a régua.');
     Exit;
   end;
 
   FCalibrating := not FCalibrating;
   if FCalibrating then
   begin
+    Opt := QuestionDlg('Método de Calibração Física',
+      'Selecione o tipo de referência conhecida que deseja marcar na imagem:' + LineEnding + LineEnding +
+      '[Sim] - Micrômetro de Lâmina (STAGE_MICROMETER)' + LineEnding +
+      '[Não] - Barra de Escala (SCALE_BAR)' + LineEnding +
+      '[Cancelar] - Abortar',
+      mtConfirmation, [mrYes, 'Micrômetro', mrNo, 'Barra de Escala', mrCancel, 'Cancelar'], 0);
+
+    if Opt = mrYes then
+      FCalibMethodPending := 'STAGE_MICROMETER'
+    else if Opt = mrNo then
+      FCalibMethodPending := 'SCALE_BAR'
+    else
+    begin
+      FCalibrating := False;
+      Exit;
+    end;
+
     FCalibStep := 1;
     FImage.Cursor := crCross;
-    FBtnCalibrate.Caption := 'Cancelar Calibra' + Chr(231) + Chr(227) + 'o';
-    SetStatus('CALIBRA' + Chr(199) + Chr(195) + 'O ATIVA: Clique no PONTO A (in' + Chr(237) + 'cio da medida) na imagem.');
+    FBtnCalibrate.Caption := 'Cancelar Calibração';
+    SetStatus(Format('CALIBRAÇÃO ATIVA (%s): Clique no PONTO A (início da medida) na imagem.', [FCalibMethodPending]));
   end
   else
   begin
     FCalibStep := 0;
     FImage.Cursor := crDefault;
-    FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
-    SetStatus('Calibra' + Chr(231) + Chr(227) + 'o cancelada.');
+    FBtnCalibrate.Caption := 'Calibrar por régua';
+    SetStatus('Calibração cancelada.');
     DrawDetections;
   end;
 end;
@@ -1292,6 +1351,7 @@ var
   I: Integer;
   Code: string;
   ImgW, ImgH: Integer;
+  ScaleX, ScaleY: Double;
 begin
   SetLength(FCellMeasurements, 0);
   if (FCurrentImage = '') or not FileExists(FCurrentImage) then Exit;
@@ -1299,6 +1359,23 @@ begin
 
   ImgW := FImage.Picture.Graphic.Width;
   ImgH := FImage.Picture.Graphic.Height;
+
+  // Atualiza resoluções e fatores de resize óptico
+  FOpticalProfile.AnalysisWidthPX := ImgW;
+  FOpticalProfile.AnalysisHeightPX := ImgH;
+  if FOpticalProfile.AcquisitionWidthPX <= 0 then
+    FOpticalProfile.AcquisitionWidthPX := ImgW;
+  if FOpticalProfile.AcquisitionHeightPX <= 0 then
+    FOpticalProfile.AcquisitionHeightPX := ImgH;
+
+  FOpticalProfile.ResizeFactorX := CalculateResizeFactor(FOpticalProfile.AcquisitionWidthPX, FOpticalProfile.AnalysisWidthPX);
+  FOpticalProfile.ResizeFactorY := CalculateResizeFactor(FOpticalProfile.AcquisitionHeightPX, FOpticalProfile.AnalysisHeightPX);
+  CalculateEffectiveScale(FOpticalProfile, FOpticalProfile.EffectivePixelSizeXUM, FOpticalProfile.EffectivePixelSizeYUM);
+
+  ScaleX := GetMeasurementScaleX(FOpticalProfile);
+  ScaleY := GetMeasurementScaleY(FOpticalProfile);
+  FActiveScaleUmPerPx := ScaleX;
+  FEdScaleUmPerPx.Text := FormatFloat('0.00000', FActiveScaleUmPerPx);
 
   SetLength(FCellMeasurements, Length(FObjects));
   for I := 0 to High(FObjects) do
@@ -1311,7 +1388,7 @@ begin
       FObjects[I].X1, FObjects[I].Y1,
       FObjects[I].X2, FObjects[I].Y2,
       FObjects[I].Polygon,
-      FActiveScaleUmPerPx,
+      ScaleX, ScaleY,
       ImgW, ImgH,
       False, // Não permite células cortadas na borda nas estatísticas válidas
       10.0,
@@ -1329,17 +1406,39 @@ end;
 procedure TfrmMain.UpdateMorphometryUI;
 var
   S: TStringList;
+  ReliabilityStr: string;
 begin
   S := TStringList.Create;
   try
+    if (FOpticalProfile.CalibrationMethod = 'STAGE_MICROMETER') or
+       (FOpticalProfile.CalibrationMethod = 'SCALE_BAR') or
+       (FOpticalProfile.CalibrationMethod = 'MANUAL') then
+      ReliabilityStr := 'CALIBRATED'
+    else
+      ReliabilityStr := 'ESTIMATED';
+
     S.Add('=== RESUMO ESTATÍSTICO DA MORFOMETRIA ===');
-    S.Add(Format('Objetiva: %.0fx | Escala ativa: %.5f µm/px (%s)',
-      [FOpticalProfile.ObjectiveMagnification, FActiveScaleUmPerPx, FOpticalProfile.CalibrationMethod]));
-    S.Add(Format('Total de células identificadas: %d', [FMorphoStats.CellCount]));
-    S.Add(Format('Células válidas para estatística: %d', [FMorphoStats.ValidCellCount]));
-    S.Add(Format('Células na borda (excluídas da estatística): %d', [FMorphoStats.ExcludedBorderCount]));
+    S.Add(Format('Objetiva: %.0fx | Adaptador: %.2fx',
+      [FOpticalProfile.ObjectiveMagnification, FOpticalProfile.AdapterMagnification]));
+    if Abs(GetMeasurementScaleX(FOpticalProfile) - GetMeasurementScaleY(FOpticalProfile)) < 0.00001 then
+      S.Add(Format('Escala ativa: %.5f µm/px (%s [%s])',
+        [FActiveScaleUmPerPx, FOpticalProfile.CalibrationMethod, ReliabilityStr]))
+    else
+      S.Add(Format('Escala X: %.5f µm/px | Escala Y: %.5f µm/px (%s [%s])',
+        [GetMeasurementScaleX(FOpticalProfile), GetMeasurementScaleY(FOpticalProfile),
+         FOpticalProfile.CalibrationMethod, ReliabilityStr]));
+
+    S.Add(Format('Resolução Aquisição: %dx%d | Análise: %dx%d',
+      [FOpticalProfile.AcquisitionWidthPX, FOpticalProfile.AcquisitionHeightPX,
+       FOpticalProfile.AnalysisWidthPX, FOpticalProfile.AnalysisHeightPX]));
     S.Add('');
-    S.Add('--- Diâmetro Equivalente (Deq) ---');
+    S.Add(Format('Total detectado: %d', [FMorphoStats.CellCount]));
+    S.Add(Format('Válido para morfometria: %d', [FMorphoStats.ValidCellCount]));
+    S.Add(Format('Borda (excluído): %d', [FMorphoStats.ExcludedBorderCount]));
+    S.Add(Format('Bounding-box-only (excluído da morfometria): %d', [FMorphoStats.BoundingBoxOnlyCount]));
+    S.Add(Format('Segmentação válida (polígono): %d', [FMorphoStats.ValidSegmentationCount]));
+    S.Add('');
+    S.Add('--- Diâmetro Equivalente (Deq = 2*sqrt(Area/pi)) ---');
     S.Add(Format('Diâmetro Médio: %.2f µm ± %.2f µm', [FMorphoStats.MeanDiameterUM, FMorphoStats.StdDevDiameterUM]));
     S.Add(Format('Mediana: %.2f µm (P10: %.2f µm, P90: %.2f µm)', [FMorphoStats.MedianDiameterUM, FMorphoStats.P10DiameterUM, FMorphoStats.P90DiameterUM]));
     S.Add(Format('Mínimo: %.2f µm | Máximo: %.2f µm', [FMorphoStats.MinDiameterUM, FMorphoStats.MaxDiameterUM]));
@@ -1348,8 +1447,8 @@ begin
     S.Add('');
     S.Add('--- Forma e Área ---');
     S.Add(Format('Área Média: %.2f µm²', [FMorphoStats.MeanAreaUM2]));
-    S.Add(Format('Circularidade Média: %.2f (0=linear, 1=círculo)', [FMorphoStats.MeanCircularity]));
-    S.Add(Format('Eixo Maior Médio: %.2f µm | Eixo Menor Médio: %.2f µm', [FMorphoStats.MeanMajorAxisUM, FMorphoStats.MeanMinorAxisUM]));
+    S.Add(Format('Circularidade Média: %.2f (0=linear, 1=círculo perfeito)', [FMorphoStats.MeanCircularity]));
+    S.Add(Format('Eixo Maior Médio (PCA): %.2f µm | Eixo Menor Médio (PCA): %.2f µm', [FMorphoStats.MeanMajorAxisUM, FMorphoStats.MeanMinorAxisUM]));
     S.Add(Format('Razão de Aspecto Média: %.2f', [FMorphoStats.MeanAspectRatio]));
     FMemoMorphoSummary.Lines.Assign(S);
   finally
@@ -1372,6 +1471,7 @@ begin
     FGridCells.Cells[4, I] := '';
     FGridCells.Cells[5, I] := '';
     FGridCells.Cells[6, I] := '';
+    FGridCells.Cells[7, I] := '';
   end;
 
   for I := 0 to High(FCellMeasurements) do
@@ -1384,9 +1484,9 @@ begin
     FGridCells.Cells[4, I + 1] := FormatFloat('0.00', FCellMeasurements[I].EquivalentDiameterUM);
     FGridCells.Cells[5, I + 1] := FormatFloat('0.00', FCellMeasurements[I].Circularity);
     FGridCells.Cells[6, I + 1] := BordaStr;
+    FGridCells.Cells[7, I + 1] := FCellMeasurements[I].GeometrySource;
   end;
 end;
-
 
 procedure TfrmMain.ConnectClick(Sender: TObject);
 var
@@ -2014,13 +2114,63 @@ begin
     if FQualityReason <> '' then S.Add('Qualidade - observações: ' + FQualityReason);
     S.Add('Detecções brutas: ' + IntToStr(Length(FObjects)));
     S.Add('');
-    S.Add('CONFIGURAÇÃO ÓPTICA E CALIBRAÇÃO');
-    S.Add(Format('Objetiva: %.0fx | Adaptador: %.2fx | Sensor: %.2f µm',
-      [FOpticalProfile.ObjectiveMagnification, FOpticalProfile.AdapterMagnification, FOpticalProfile.SensorPixelSizeUM]));
-    S.Add(Format('Escala em uso: %.5f µm/pixel (Método: %s)',
-      [FActiveScaleUmPerPx, FOpticalProfile.CalibrationMethod]));
+    S.Add('=== CALIBRAÇÃO ÓPTICA ===');
     S.Add('');
-    S.Add('CONTAGEM POR COMPONENTE');
+    S.Add(Format('Objetiva: %.0fx', [FOpticalProfile.ObjectiveMagnification]));
+    S.Add(Format('Adaptador: %.2fx', [FOpticalProfile.AdapterMagnification]));
+    S.Add('  (Nota óptica: A ocular visual não faz parte do caminho óptico da câmera digital)');
+    S.Add('');
+    S.Add('Pixel físico do sensor:');
+    S.Add(Format('%.2f µm', [FOpticalProfile.SensorPixelSizeUM]));
+    S.Add('');
+    S.Add('Aquisição:');
+    S.Add(Format('%d x %d', [FOpticalProfile.AcquisitionWidthPX, FOpticalProfile.AcquisitionHeightPX]));
+    S.Add('');
+    S.Add('Imagem analisada:');
+    S.Add(Format('%d x %d', [FOpticalProfile.AnalysisWidthPX, FOpticalProfile.AnalysisHeightPX]));
+    S.Add('');
+    S.Add('Escala óptica teórica:');
+    S.Add(Format('%.5f µm/px', [FOpticalProfile.TheoreticalPixelSizeUM]));
+    S.Add('');
+    S.Add('Escala efetiva após processamento:');
+    if Abs(FOpticalProfile.EffectivePixelSizeXUM - FOpticalProfile.EffectivePixelSizeYUM) < 0.00001 then
+      S.Add(Format('%.5f µm/px', [FOpticalProfile.EffectivePixelSizeXUM]))
+    else
+    begin
+      S.Add(Format('Escala X: %.5f µm/px', [FOpticalProfile.EffectivePixelSizeXUM]));
+      S.Add(Format('Escala Y: %.5f µm/px', [FOpticalProfile.EffectivePixelSizeYUM]));
+    end;
+    S.Add('');
+    S.Add('Método de calibração:');
+    S.Add(FOpticalProfile.CalibrationMethod);
+    if FOpticalProfile.CalibrationReferencePX > 0.0 then
+    begin
+      S.Add('');
+      S.Add('Referência:');
+      S.Add(Format('%.2f µm = %.1f px', [FOpticalProfile.CalibrationReferenceUM, FOpticalProfile.CalibrationReferencePX]));
+      S.Add('');
+      S.Add('Escala calibrada:');
+      S.Add(Format('%.5f µm/px', [FOpticalProfile.CalibratedPixelSizeUM]));
+    end;
+    S.Add('');
+    S.Add('Escala utilizada na morfometria:');
+    if Abs(GetMeasurementScaleX(FOpticalProfile) - GetMeasurementScaleY(FOpticalProfile)) < 0.00001 then
+      S.Add(Format('%.5f µm/px', [GetMeasurementScaleX(FOpticalProfile)]))
+    else
+    begin
+      S.Add(Format('Escala X: %.5f µm/px', [GetMeasurementScaleX(FOpticalProfile)]));
+      S.Add(Format('Escala Y: %.5f µm/px', [GetMeasurementScaleY(FOpticalProfile)]));
+    end;
+    S.Add('');
+    S.Add('Confiabilidade:');
+    if (FOpticalProfile.CalibrationMethod = 'STAGE_MICROMETER') or
+       (FOpticalProfile.CalibrationMethod = 'SCALE_BAR') or
+       (FOpticalProfile.CalibrationMethod = 'MANUAL') then
+      S.Add('CALIBRATED')
+    else
+      S.Add('ESTIMATED');
+    S.Add('');
+S.Add('CONTAGEM POR COMPONENTE');
     for I := 0 to High(FSummaries) do
     begin
       if FSummaries[I].Count > 0 then Avg := FSummaries[I].ConfidenceSum / FSummaries[I].Count
@@ -2170,9 +2320,17 @@ begin
   OptObj.Add('objective_magnification', FOpticalProfile.ObjectiveMagnification);
   OptObj.Add('adapter_magnification', FOpticalProfile.AdapterMagnification);
   OptObj.Add('sensor_pixel_size_um', FOpticalProfile.SensorPixelSizeUM);
+  OptObj.Add('acquisition_width_px', FOpticalProfile.AcquisitionWidthPX);
+  OptObj.Add('acquisition_height_px', FOpticalProfile.AcquisitionHeightPX);
+  OptObj.Add('analysis_width_px', FOpticalProfile.AnalysisWidthPX);
+  OptObj.Add('analysis_height_px', FOpticalProfile.AnalysisHeightPX);
+  OptObj.Add('resize_factor_x', FOpticalProfile.ResizeFactorX);
+  OptObj.Add('resize_factor_y', FOpticalProfile.ResizeFactorY);
+  OptObj.Add('effective_scale_x_um_px', FOpticalProfile.EffectivePixelSizeXUM);
+  OptObj.Add('effective_scale_y_um_px', FOpticalProfile.EffectivePixelSizeYUM);
   OptObj.Add('scale_um_per_px', FActiveScaleUmPerPx);
   OptObj.Add('calibration_method', FOpticalProfile.CalibrationMethod);
-  OptObj.Add('is_calibrated', FOpticalProfile.CalibrationMethod = 'STAGE_MICROMETER');
+  OptObj.Add('is_calibrated', (FOpticalProfile.CalibrationMethod = 'STAGE_MICROMETER') or (FOpticalProfile.CalibrationMethod = 'SCALE_BAR'));
   Result.Add('optics', OptObj);
 
   // Resumo de morfometria populacional
@@ -2180,6 +2338,8 @@ begin
   MorphObj.Add('cell_count', FMorphoStats.CellCount);
   MorphObj.Add('valid_cell_count', FMorphoStats.ValidCellCount);
   MorphObj.Add('excluded_border_count', FMorphoStats.ExcludedBorderCount);
+  MorphObj.Add('bounding_box_only_count', FMorphoStats.BoundingBoxOnlyCount);
+  MorphObj.Add('valid_segmentation_count', FMorphoStats.ValidSegmentationCount);
   MorphObj.Add('mean_diameter_um', FMorphoStats.MeanDiameterUM);
   MorphObj.Add('median_diameter_um', FMorphoStats.MedianDiameterUM);
   MorphObj.Add('stddev_diameter_um', FMorphoStats.StdDevDiameterUM);
@@ -2204,9 +2364,12 @@ begin
     MeasObj.Add('major_axis_um', FCellMeasurements[I].MajorAxisUM);
     MeasObj.Add('minor_axis_um', FCellMeasurements[I].MinorAxisUM);
     MeasObj.Add('circularity', FCellMeasurements[I].Circularity);
+    MeasObj.Add('raw_circularity', FCellMeasurements[I].RawCircularity);
     MeasObj.Add('aspect_ratio', FCellMeasurements[I].AspectRatio);
     MeasObj.Add('touches_border', FCellMeasurements[I].TouchesBorder);
     MeasObj.Add('measurement_valid', FCellMeasurements[I].MeasurementValid);
+    MeasObj.Add('measurement_reason', FCellMeasurements[I].MeasurementReason);
+    MeasObj.Add('geometry_source', FCellMeasurements[I].GeometrySource);
     MeasArr.Add(MeasObj);
   end;
   Result.Add('cell_measurements', MeasArr);
@@ -2601,61 +2764,75 @@ begin
       DrawDetections;
       Application.ProcessMessages;
 
-      RealDistStr := '10.0';
-      if InputQuery('Calibra' + Chr(231) + Chr(227) + 'o Microm' + Chr(233) + 'trica',
-                    Format('Dist' + Chr(226) + 'ncia marcada: %.1f pixels' + LineEnding +
-                           'Informe a dist' + Chr(226) + 'ncia real correspondente na r' + Chr(233) + 'gua (' + Chr(181) + 'm):', [DistPX]),
+      RealDistStr := '100.0';
+      if FCalibMethodPending = '' then FCalibMethodPending := 'STAGE_MICROMETER';
+
+      if InputQuery('Calibração Física (' + FCalibMethodPending + ')',
+                    Format('Distância marcada: %.1f pixels' + LineEnding +
+                           'Informe a distância real correspondente da referência (µm):', [DistPX]),
                     RealDistStr) then
       begin
         FS := DefaultFormatSettings; FS.DecimalSeparator := '.';
         RealDistUM := StrToFloatDef(StringReplace(RealDistStr, ',', '.', [rfReplaceAll]), 0, FS);
-        if RealDistUM > 0 then
+        if RealDistUM > 0.0001 then
         begin
           NewScale := RealDistUM / DistPX;
+
+          // Verificação de discrepância em relação à escala teórica (>10%)
+          if (FOpticalProfile.TheoreticalPixelSizeUM > 0.00001) and
+             ((Abs(NewScale - FOpticalProfile.TheoreticalPixelSizeUM) / FOpticalProfile.TheoreticalPixelSizeUM) > 0.10) then
+          begin
+            ShowMessage(Format('Aviso Metrológico: A escala calibrada (%.5f µm/px) difere em mais de 10%% da escala óptica teórica (%.5f µm/px).' + LineEnding +
+              'Verifique se a objetiva selecionada (%s) e o valor de referência informado correspondem à lâmina.',
+              [NewScale, FOpticalProfile.TheoreticalPixelSizeUM, FCbObjective.Text]));
+          end;
+
           FActiveScaleUmPerPx := NewScale;
           FOpticalProfile.CalibratedPixelSizeUM := NewScale;
-          FOpticalProfile.CalibrationMethod := 'STAGE_MICROMETER';
+          FOpticalProfile.CalibrationMethod := FCalibMethodPending;
           FOpticalProfile.CalibrationReferenceUM := RealDistUM;
           FOpticalProfile.CalibrationReferencePX := DistPX;
+          FOpticalProfile.EffectivePixelSizeXUM := NewScale;
+          FOpticalProfile.EffectivePixelSizeYUM := NewScale;
           FEdScaleUmPerPx.Text := FormatFloat('0.00000', NewScale);
           FCalibrating := False;
           FCalibStep := 0;
           FImage.Cursor := crDefault;
-          FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
-          ShowMessage(Format('Calibra' + Chr(231) + Chr(227) + 'o Microm' + Chr(233) + 'trica Conclu' + Chr(237) + 'da com Sucesso!' + LineEnding + LineEnding +
-            Chr(149) + ' Dist' + Chr(226) + 'ncia na r' + Chr(233) + 'gua: %.1f px = %.2f ' + Chr(181) + 'm' + LineEnding +
-            Chr(149) + ' Nova escala calculada: %.5f ' + Chr(181) + 'm/pixel' + LineEnding +
-            Chr(149) + ' Todas as medi' + Chr(231) + Chr(245) + 'es e morfometria foram recalculadas.', [DistPX, RealDistUM, NewScale]));
+          FBtnCalibrate.Caption := 'Calibrar por régua';
+          UpdateTheoreticalScale;
+          ShowMessage(Format('Calibração Concluída com Sucesso!' + LineEnding + LineEnding +
+            Chr(149) + ' Método: %s (CALIBRATED)' + LineEnding +
+            Chr(149) + ' Cálculo: %.2f µm / %.1f px = %.5f µm/px' + LineEnding +
+            Chr(149) + ' Todas as medições foram recalculadas.',
+            [FOpticalProfile.CalibrationMethod, RealDistUM, DistPX, NewScale]));
           RecalculateMorphometry;
           DrawDetections;
           BuildDeterministicReport;
-          SetStatus(Format('Calibra' + Chr(231) + Chr(227) + 'o ativa: %.5f ' + Chr(181) + 'm/px (%.1f px = %.2f ' + Chr(181) + 'm)', [NewScale, DistPX, RealDistUM]));
-          Log(Format('R' + Chr(233) + 'gua calibrada: %.1f px = %.2f ' + Chr(181) + 'm -> escala = %.5f ' + Chr(181) + 'm/px', [DistPX, RealDistUM, NewScale]));
+          SetStatus(Format('Calibração ativa: %.5f µm/px (%.1f px = %.2f µm) [%s]', [NewScale, DistPX, RealDistUM, FOpticalProfile.CalibrationMethod]));
+          Log(Format('Referência calibrada: %.1f px = %.2f µm -> escala = %.5f µm/px (%s)', [DistPX, RealDistUM, NewScale, FOpticalProfile.CalibrationMethod]));
         end
         else
         begin
-          ShowMessage('Valor inv' + Chr(225) + 'lido informado. Calibra' + Chr(231) + Chr(227) + 'o mantida anterior.');
+          ShowMessage('Valor inválido informado (deve ser maior que zero). Calibração cancelada.');
           FCalibrating := False;
           FCalibStep := 0;
           FImage.Cursor := crDefault;
-          FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
+          FBtnCalibrate.Caption := 'Calibrar por régua';
           DrawDetections;
         end;
       end
       else
       begin
-        // Cancelou InputQuery
         FCalibrating := False;
         FCalibStep := 0;
         FImage.Cursor := crDefault;
-        FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
-        SetStatus('Calibra' + Chr(231) + Chr(227) + 'o cancelada pelo usu' + Chr(225) + 'rio.');
+        FBtnCalibrate.Caption := 'Calibrar por régua';
+        SetStatus('Calibração cancelada pelo usuário.');
         DrawDetections;
       end;
       Exit;
     end;
   end;
-
   if FAddReviewMode then
   begin
     AddManualObject(IX, IY);

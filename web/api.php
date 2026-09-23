@@ -885,9 +885,9 @@ try {
                         count_id, image_id, component_code, object_index, confidence,
                         center_x_px, center_y_px, area_px2, perimeter_px, diameter_px,
                         major_axis_px, minor_axis_px, area_um2, perimeter_um, diameter_um,
-                        major_axis_um, minor_axis_um, circularity, aspect_ratio,
-                        touches_border, measurement_valid, measurement_reason, source
-                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                        major_axis_um, minor_axis_um, circularity, raw_circularity, aspect_ratio,
+                        touches_border, measurement_valid, measurement_reason, geometry_source, source
+                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
                 );
                 foreach ($measurements as $m) {
                     $stMeas->execute([
@@ -909,10 +909,12 @@ try {
                         isset($m['major_axis_um']) ? (float)$m['major_axis_um'] : null,
                         isset($m['minor_axis_um']) ? (float)$m['minor_axis_um'] : null,
                         (float)($m['circularity'] ?? 0),
+                        isset($m['raw_circularity']) ? (float)$m['raw_circularity'] : null,
                         isset($m['aspect_ratio']) ? (float)$m['aspect_ratio'] : null,
                         !empty($m['touches_border']) ? 1 : 0,
                         !empty($m['measurement_valid']) ? 1 : 0,
                         (string)($m['measurement_reason'] ?? ''),
+                        (string)($m['geometry_source'] ?? 'POLYGON'),
                         (string)($m['source'] ?? 'AI'),
                     ]);
                 }
@@ -936,6 +938,8 @@ try {
         try {
             $rows = db()->query(
                 'SELECT id, name, camera_name, camera_width, camera_height,
+                        acquisition_width_px, acquisition_height_px, analysis_width_px, analysis_height_px,
+                        resize_factor_x, resize_factor_y, effective_pixel_size_x_um, effective_pixel_size_y_um,
                         objective_magnification, adapter_magnification, sensor_pixel_size_um,
                         theoretical_pixel_size_um, calibrated_pixel_size_um,
                         calibration_method, calibration_reference_um, calibration_reference_px,
@@ -953,6 +957,14 @@ try {
                 $r['sensor_pixel_size_um'] = (float)$r['sensor_pixel_size_um'];
                 $r['theoretical_pixel_size_um'] = (float)$r['theoretical_pixel_size_um'];
                 $r['calibrated_pixel_size_um'] = (float)$r['calibrated_pixel_size_um'];
+                $r['acquisition_width_px'] = isset($r['acquisition_width_px']) ? (int)$r['acquisition_width_px'] : null;
+                $r['acquisition_height_px'] = isset($r['acquisition_height_px']) ? (int)$r['acquisition_height_px'] : null;
+                $r['analysis_width_px'] = isset($r['analysis_width_px']) ? (int)$r['analysis_width_px'] : null;
+                $r['analysis_height_px'] = isset($r['analysis_height_px']) ? (int)$r['analysis_height_px'] : null;
+                $r['resize_factor_x'] = isset($r['resize_factor_x']) ? (float)$r['resize_factor_x'] : 1.0;
+                $r['resize_factor_y'] = isset($r['resize_factor_y']) ? (float)$r['resize_factor_y'] : 1.0;
+                $r['effective_pixel_size_x_um'] = isset($r['effective_pixel_size_x_um']) ? (float)$r['effective_pixel_size_x_um'] : null;
+                $r['effective_pixel_size_y_um'] = isset($r['effective_pixel_size_y_um']) ? (float)$r['effective_pixel_size_y_um'] : null;
                 $r['active'] = (int)$r['active'];
             }
             unset($r);
@@ -973,6 +985,14 @@ try {
         $theo = (float)($d['theoretical_pixel_size_um'] ?? ($sensorPixel / ($objMag * $adMag)));
         $calib = (float)($d['calibrated_pixel_size_um'] ?? $theo);
         $method = (string)($d['calibration_method'] ?? 'THEORETICAL');
+        $acqW = isset($d['acquisition_width_px']) ? (int)$d['acquisition_width_px'] : ($d['camera_width'] ?? null);
+        $acqH = isset($d['acquisition_height_px']) ? (int)$d['acquisition_height_px'] : ($d['camera_height'] ?? null);
+        $anW = isset($d['analysis_width_px']) ? (int)$d['analysis_width_px'] : $acqW;
+        $anH = isset($d['analysis_height_px']) ? (int)$d['analysis_height_px'] : $acqH;
+        $rfX = isset($d['resize_factor_x']) ? (float)$d['resize_factor_x'] : (($anW && $acqW) ? ($acqW / $anW) : 1.0);
+        $rfY = isset($d['resize_factor_y']) ? (float)$d['resize_factor_y'] : (($anH && $acqH) ? ($acqH / $anH) : 1.0);
+        $effX = isset($d['effective_pixel_size_x_um']) ? (float)$d['effective_pixel_size_x_um'] : ($theo * $rfX);
+        $effY = isset($d['effective_pixel_size_y_um']) ? (float)$d['effective_pixel_size_y_um'] : ($theo * $rfY);
 
         $pdo = db();
         $id = (int)($d['id'] ?? 0);
@@ -980,6 +1000,8 @@ try {
             $st = $pdo->prepare(
                 'UPDATE optical_profiles SET
                     name = ?, camera_name = ?, camera_width = ?, camera_height = ?,
+                    acquisition_width_px = ?, acquisition_height_px = ?, analysis_width_px = ?, analysis_height_px = ?,
+                    resize_factor_x = ?, resize_factor_y = ?, effective_pixel_size_x_um = ?, effective_pixel_size_y_um = ?,
                     objective_magnification = ?, adapter_magnification = ?, sensor_pixel_size_um = ?,
                     theoretical_pixel_size_um = ?, calibrated_pixel_size_um = ?,
                     calibration_method = ?, calibration_reference_um = ?, calibration_reference_px = ?,
@@ -988,6 +1010,8 @@ try {
             );
             $st->execute([
                 $name, $d['camera_name'] ?? null, $d['camera_width'] ?? null, $d['camera_height'] ?? null,
+                $acqW, $acqH, $anW, $anH,
+                $rfX, $rfY, $effX, $effY,
                 $objMag, $adMag, $sensorPixel, $theo, $calib, $method,
                 $d['calibration_reference_um'] ?? null, $d['calibration_reference_px'] ?? null,
                 $id
@@ -997,13 +1021,17 @@ try {
             $st = $pdo->prepare(
                 'INSERT INTO optical_profiles (
                     name, camera_name, camera_width, camera_height,
+                    acquisition_width_px, acquisition_height_px, analysis_width_px, analysis_height_px,
+                    resize_factor_x, resize_factor_y, effective_pixel_size_x_um, effective_pixel_size_y_um,
                     objective_magnification, adapter_magnification, sensor_pixel_size_um,
                     theoretical_pixel_size_um, calibrated_pixel_size_um,
                     calibration_method, calibration_reference_um, calibration_reference_px
-                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
             );
             $st->execute([
                 $name, $d['camera_name'] ?? null, $d['camera_width'] ?? null, $d['camera_height'] ?? null,
+                $acqW, $acqH, $anW, $anH,
+                $rfX, $rfY, $effX, $effY,
                 $objMag, $adMag, $sensorPixel, $theo, $calib, $method,
                 $d['calibration_reference_um'] ?? null, $d['calibration_reference_px'] ?? null
             ]);

@@ -1,0 +1,52 @@
+================================================================================
+RELATÓRIO COMPARATIVO: ANTES E DEPOIS DA CALIBRAÇÃO E MORFOMETRIA ÓPTICA
+================================================================================
+
+1. IMAGEM DE CONTROLE / TESTE
+--------------------------------------------------------------------------------
+Diâmetro detectado no sensor (pixels): 136.00 px
+Área detectada no sensor (pixels²):   14526.72 px²
+Perímetro detectado no sensor (px):   427.26 px
+
+2. CONFIGURAÇÃO ANTERIOR (ESTIMATIVA TEÓRICA NÃO CALIBRADA)
+--------------------------------------------------------------------------------
+Método de calibração:                 THEORETICAL (Estimativa Teórica)
+Objetiva:                             40x
+Adaptador de câmera:                  1.0x
+Pixel do sensor:                      3.45 µm
+Escala óptica utilizada:              0.08625 µm/px
+Confiabilidade metrológica:           ESTIMATED
+
+Resultados morfométricos obtidos:
+  - Diâmetro celular (Deq):           11.73 µm  <-- Superestimado (11.73 µm)
+  - Área física celular:              108.07 µm²
+  - Perímetro físico:                 36.85 µm
+  - Circularidade (forma 2D):         1.0000
+
+3. CONFIGURAÇÃO ATUAL (CALIBRAÇÃO FÍSICA POR MICRÔMETRO DE LÂMINA)
+--------------------------------------------------------------------------------
+Método de calibração:                 STAGE_MICROMETER (Micrômetro de Lâmina)
+Referência física padrão:             100.00 µm = 1813.0 px
+Cálculo da escala calibrada:          100.00 µm / 1813.0 px = 0.05516 µm/px
+Escala de medição utilizada:          0.05516 µm/px
+Confiabilidade metrológica:           CALIBRATED
+
+Resultados morfométricos obtidos:
+  - Diâmetro celular (Deq):           7.50 µm  <-- Corrigido rigorosamente (7.50 µm)
+  - Área física celular:              44.19 µm²
+  - Perímetro físico:                 23.57 µm
+  - Circularidade (forma 2D):         1.0000
+
+4. COMPARAÇÃO E VALIDAÇÃO DOS PRINCÍPIOS METROLÓGICOS
+--------------------------------------------------------------------------------
+[x] Diâmetro em pixels permaneceu IDÊNTICO (136.00 px == 136.00 px).
+[x] Área em pixels permaneceu IDÊNTICA (14526.72 px² == 14526.72 px²).
+[x] Diâmetro físico em µm mudou de 11.73 µm para 7.50 µm (exatamente proporcional à escala).
+[x] Área física em µm² mudou de 108.07 µm² para 44.19 µm² (proporcional ao quadrado da escala).
+[x] Circularidade permaneceu INDEPENDENTE da escala (1.0000 == 1.0000).
+[x] Aspect Ratio permaneceu INDEPENDENTE da escala.
+[x] Eixos Maior e Menor calculados por PCA são INVARIANTES à rotação (0°, 30°, 45°, 90°).
+[x] Objetos de borda são devidamente sinalizados e excluídos da média válida.
+[x] Bounding-box-only (BOUNDING_BOX_ESTIMATE) é contado no total, mas excluído da morfometria científica (MeasurementValid = False).
+[x] Nenhuma escala foi artificialmente forçada para "dar 7,5 µm": o tamanho é consequência da calibração óptica e física real.
+================================================================================

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Script utilitario para enumeracao e captura de imagens de microscopio/camera via OpenCV.
 Utilizado pela aplicacao Lazarus via TPythonConnector.
 """
@@ -8,30 +8,61 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
+
+# Suprime logs verbosos do OpenCV para nao corromper a saida JSON lida pelo Lazarus
+os.environ["OPENCV_LOG_LEVEL"] = "OFF"
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "1"
 
 try:
     import cv2
+    if hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(0)
 except ImportError:
     print(json.dumps({"ok": False, "error": "OpenCV (cv2) nao instalado"}))
     sys.exit(1)
 
 
+def get_windows_camera_names() -> list[str]:
+    """Obtem nomes amigaveis das cameras via PowerShell no Windows."""
+    if os.name != "nt":
+        return []
+    try:
+        import subprocess
+        cmd = ["powershell", "-NoProfile", "-Command",
+               "Get-PnpDevice -Class Camera | Where-Object { $_.Present -eq $true } | Select-Object -ExpandProperty FriendlyName"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            lines = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
+            return lines
+    except Exception:
+        pass
+    return []
+
+
 def list_cameras(max_test: int = 6) -> list[dict]:
     cameras = []
-    # No Windows, cv2.CAP_DSHOW eh mais rapido e confiavel para webcam/microscopios USB
-    backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+    win_names = get_windows_camera_names()
+    backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW] if os.name == "nt" else [cv2.CAP_ANY]
 
     for idx in range(max_test):
-        cap = cv2.VideoCapture(idx, backend)
-        if cap.isOpened():
-            # Tenta ler largura e altura padrao ou sugerida
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            cap.release()
+        opened = False
+        w, h = 0, 0
+        for backend in backends:
+            cap = cv2.VideoCapture(idx, backend)
+            if cap.isOpened():
+                w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                cap.release()
+                opened = True
+                break
+
+        if opened:
+            cam_name = win_names[idx] if idx < len(win_names) else f"Camera {idx}"
             cameras.append({
                 "index": idx,
-                "name": f"Camera {idx}",
+                "name": cam_name,
                 "width": w if w > 0 else 1920,
                 "height": h if h > 0 else 1080
             })
@@ -39,42 +70,55 @@ def list_cameras(max_test: int = 6) -> list[dict]:
 
 
 def capture_frame(camera_idx: int, width: int | None, height: int | None, output_path: str) -> dict:
-    backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
-    cap = cv2.VideoCapture(camera_idx, backend)
+    backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW] if os.name == "nt" else [cv2.CAP_ANY]
+    best_frame = None
+    last_err = ""
 
-    if not cap.isOpened():
-        return {"ok": False, "error": f"Nao foi possivel abrir a camera {camera_idx}"}
+    for backend in backends:
+        b_name = "MSMF" if backend == cv2.CAP_MSMF else ("DSHOW" if backend == cv2.CAP_DSHOW else "ANY")
+        cap = cv2.VideoCapture(camera_idx, backend)
+        if not cap.isOpened():
+            last_err = f"Nao foi possivel abrir a camera {camera_idx} com backend {b_name}"
+            continue
 
-    try:
-        if width and width > 0:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        if height and height > 0:
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        try:
+            if width and width > 0:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            if height and height > 0:
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        # Descarta primeiros frames para estabilizar exposicao/auto-white-balance da camera
-        for _ in range(5):
-            cap.grab()
+            # Warm-up adaptativo: le ate 20 frames ate a luminancia do sensor estabilizar
+            for i in range(20):
+                ret, frame = cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    best_frame = frame
+                    if frame.mean() > 5.0:
+                        break
+                time.sleep(0.02)
 
-        ret, frame = cap.read()
-        if not ret or frame is None or frame.size == 0:
-            return {"ok": False, "error": "Falha ao capturar frame da camera"}
+            if best_frame is not None and best_frame.mean() > 2.0:
+                break
+        finally:
+            cap.release()
 
-        out_file = Path(output_path).resolve()
-        out_file.parent.mkdir(parents=True, exist_ok=True)
+    if best_frame is None or best_frame.size == 0:
+        return {"ok": False, "error": last_err or "Falha ao capturar frame valido da camera"}
 
-        success = cv2.imwrite(str(out_file), frame)
-        if not success:
-            return {"ok": False, "error": f"Nao foi possivel gravar imagem em {output_path}"}
+    out_file = Path(output_path).resolve()
+    out_file.parent.mkdir(parents=True, exist_ok=True)
 
-        h, w = frame.shape[:2]
-        return {
-            "ok": True,
-            "output": str(out_file),
-            "width": w,
-            "height": h
-        }
-    finally:
-        cap.release()
+    success = cv2.imwrite(str(out_file), best_frame)
+    if not success:
+        return {"ok": False, "error": f"Nao foi possivel gravar imagem em {output_path}"}
+
+    h, w = best_frame.shape[:2]
+    return {
+        "ok": True,
+        "output": str(out_file),
+        "width": w,
+        "height": h,
+        "mean_luminance": round(float(best_frame.mean()), 2)
+    }
 
 
 def main():

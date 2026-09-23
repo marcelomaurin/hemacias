@@ -32,3 +32,5 @@ lazarus/**/lib/
 lazarus/**/backup/
 lib/
 backup/
+temp/
+captures/

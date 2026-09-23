@@ -1,4 +1,4 @@
-﻿unit camera_service;
+unit camera_service;
 
 {$mode objfpc}{$H+}
 
@@ -215,7 +215,14 @@ begin
   Result := False;
   SetLength(ACameras, 0);
 
-  // 1. Método principal: TAICaptureSource (CHATGPT Suite com DirectShow nativo Win7+)
+  // 1. Tenta listar via Python com nomes amigaveis
+  if ListCamerasViaPython(ACameras) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  // 2. Método principal Lazarus: TAICaptureSource
   Cap := TAICaptureSource.Create(nil);
   try
     List := Cap.ListAvailableCameras;
@@ -250,7 +257,7 @@ begin
 
   if Result then Exit;
 
-  // 2. Método de contingência: DirectShow COM nativo direto
+  // 3. Método de contingência: DirectShow COM nativo direto
   {$IFDEF MSWINDOWS}
   if EnumerateDirectShowCameras(ACameras) then
   begin
@@ -258,13 +265,6 @@ begin
     Exit;
   end;
   {$ENDIF}
-
-  // 3. Método de contingência: Python / OpenCV
-  if ListCamerasViaPython(ACameras) then
-  begin
-    Result := True;
-    Exit;
-  end;
 end;
 
 function CaptureCameraFrame(ACameraIndex, AWidth, AHeight: Integer;
@@ -278,7 +278,20 @@ begin
   Result := False;
   ACapturedPath := '';
 
-  // 1. Tenta captura via TAICaptureSource (CHATGPT)
+  // 1. Para câmeras secundárias (índice > 0) ou quando o script Python estiver disponível:
+  // No Windows, o backend VFW não suporta índices adicionais (só existe driver 0).
+  // Além disso, o Python OpenCV captura em alta resolução nativa (1600x1200 / 1920x1080).
+  if (ACameraIndex > 0) or (FindCameraScript <> '') then
+  begin
+    if CaptureViaPython(ACameraIndex, AWidth, AHeight, AOutputFile) and FileExists(AOutputFile) then
+    begin
+      ACapturedPath := AOutputFile;
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  // 2. Tenta captura via TAICaptureSource (CHATGPT / VFW) para índice 0
   Cap := TAICaptureSource.Create(nil);
   try
     Cap.SourceKind := cskCameraLocal;
@@ -341,7 +354,7 @@ begin
 
   if Result then Exit;
 
-  // 2. Fallback de alta fidelidade: Python OpenCV (usado pelo TPythonConnector)
+  // 3. Fallback de contingência final: Python OpenCV
   if CaptureViaPython(ACameraIndex, AWidth, AHeight, AOutputFile) and FileExists(AOutputFile) then
   begin
     ACapturedPath := AOutputFile;

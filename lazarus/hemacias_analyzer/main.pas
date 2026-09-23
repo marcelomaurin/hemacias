@@ -7,9 +7,11 @@ interface
 uses
   Classes, SysUtils, Math, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
   Grids, ComCtrls, fpjson, pythonconnector, yolodetect, chatgpt, hemacias_api,
-  measurement_types, morphometry, calibration, camera_service, aicapturesource, aicamera_backend;
+  measurement_types, morphometry, calibration, camera_service, aicapturesource, aicamera_backend, aiframeprocessor, imagefilters, IntfGraphics, FPimage;
 
 type
+  TBrightnessContrastHelper = class(TBrightnessContrastFilter);
+
   TClassSummary = record
     Code: string;
     DisplayName: string;
@@ -54,6 +56,24 @@ type
     FTabMorpho: TTabSheet;
     FTabLab: TTabSheet;
     FTabReport: TTabSheet;
+    FTabImageAdjust: TTabSheet;
+
+    // Aba 5: Ajustes de Imagem
+    FTrkBrightness: TTrackBar;
+    FLblBrightnessVal: TLabel;
+    FTrkContrast: TTrackBar;
+    FLblContrastVal: TLabel;
+    FTrkRedGain: TTrackBar;
+    FLblRedGainVal: TLabel;
+    FTrkGreenGain: TTrackBar;
+    FLblGreenGainVal: TLabel;
+    FTrkBlueGain: TTrackBar;
+    FLblBlueGainVal: TLabel;
+    FChkGrayscale: TCheckBox;
+    FBtnApplyAdjust: TButton;
+    FBtnResetAdjust: TButton;
+    FBtnSaveAdjusted: TButton;
+    FLblAdjustStatus: TLabel;
 
     // Aba 1: Contagem & Revisão
     FGrid: TStringGrid;
@@ -91,7 +111,9 @@ type
     FEdImage: TEdit;
     FEdModel: TEdit;
     FBtnModel: TButton;
+    FBtnSearchImage: TButton;
     FEdConfidence: TEdit;
+    FTrkConfidence: TTrackBar;
     FEdImageSize: TEdit;
     FEdDevice: TEdit;
 
@@ -195,6 +217,13 @@ type
     procedure CalibrateClick(Sender: TObject);
     procedure OverlayCheckboxChange(Sender: TObject);
     procedure CalcIndicesClick(Sender: TObject);
+    procedure ConfidenceTrackChange(Sender: TObject);
+    procedure ConfidenceEditChange(Sender: TObject);
+    procedure ImageAdjustChange(Sender: TObject);
+    procedure ResetAdjustClick(Sender: TObject);
+    procedure SaveAdjustedClick(Sender: TObject);
+    procedure ApplyImageAdjustments;
+    function GetProcessedBaseBitmap: TBitmap;
 
     function ConfidenceValue: Double;
     function ImageSizeValue: Integer;
@@ -491,7 +520,12 @@ begin
   L := TLabel.Create(Self); L.Parent := FConfig;
   L.SetBounds(8, 8, 55, 20); L.Caption := 'Imagem:';
   FEdImage := TEdit.Create(Self); FEdImage.Parent := FConfig;
-  FEdImage.SetBounds(65, 5, 520, 27); FEdImage.ReadOnly := True;
+  FEdImage.SetBounds(65, 5, 430, 27); FEdImage.ReadOnly := True;
+
+  FBtnSearchImage := TButton.Create(Self); FBtnSearchImage.Parent := FConfig;
+  FBtnSearchImage.SetBounds(502, 3, 83, 30);
+  FBtnSearchImage.Caption := 'Pesquisar';
+  FBtnSearchImage.OnClick := @LoadImageClick;
 
   L := TLabel.Create(Self); L.Parent := FConfig;
   L.SetBounds(8, 42, 50, 20); L.Caption := 'Modelo:';
@@ -506,21 +540,28 @@ begin
   L := TLabel.Create(Self); L.Parent := FConfig;
   L.SetBounds(595, 8, 70, 20); L.Caption := 'Confiança:';
   FEdConfidence := TEdit.Create(Self); FEdConfidence.Parent := FConfig;
-  FEdConfidence.SetBounds(665, 5, 60, 27); FEdConfidence.Text := '0.25';
+  FEdConfidence.SetBounds(660, 5, 50, 27); FEdConfidence.Text := '0.25';
+  FEdConfidence.OnChange := @ConfidenceEditChange;
+
+  FTrkConfidence := TTrackBar.Create(Self); FTrkConfidence.Parent := FConfig;
+  FTrkConfidence.SetBounds(715, 5, 115, 27);
+  FTrkConfidence.Min := 5; FTrkConfidence.Max := 95; FTrkConfidence.Position := 25;
+  FTrkConfidence.TickStyle := tsNone;
+  FTrkConfidence.OnChange := @ConfidenceTrackChange;
 
   L := TLabel.Create(Self); L.Parent := FConfig;
-  L.SetBounds(735, 8, 45, 20); L.Caption := 'imgsz:';
+  L.SetBounds(835, 8, 45, 20); L.Caption := 'imgsz:';
   FEdImageSize := TEdit.Create(Self); FEdImageSize.Parent := FConfig;
-  FEdImageSize.SetBounds(782, 5, 65, 27); FEdImageSize.Text := '1024';
+  FEdImageSize.SetBounds(880, 5, 60, 27); FEdImageSize.Text := '1024';
 
   L := TLabel.Create(Self); L.Parent := FConfig;
   L.SetBounds(595, 42, 50, 20); L.Caption := 'Device:';
   FEdDevice := TEdit.Create(Self); FEdDevice.Parent := FConfig;
-  FEdDevice.SetBounds(665, 39, 182, 27);
-  FEdDevice.Hint := 'Vazio = automático; exemplos: 0, cpu';
+  FEdDevice.SetBounds(660, 39, 170, 27);
+  FEdDevice.Hint := 'Vazio = autom' + Chr(225) + 'tico; exemplos: 0, cpu';
   FEdDevice.ShowHint := True;
 
-  // --- Painel Óptico, Calibração e Câmera ---
+  // --- Painel Optico, Calibracao e Camera ---
   FOpticsPanel := TPanel.Create(Self);
   FOpticsPanel.Parent := Self;
   FOpticsPanel.Align := alTop;
@@ -776,6 +817,103 @@ begin
   FMemo.SetBounds(8, 32, 435, 490);
   FMemo.ScrollBars := ssAutoVertical; FMemo.WordWrap := True;
 
+  // Aba 5: Ajustes Imagens (Balanço de Cor, Contraste e Brilho via Componentes CHATGPT)
+  FTabImageAdjust := TTabSheet.Create(Self);
+  FTabImageAdjust.PageControl := FPageControl;
+  FTabImageAdjust.Caption := 'Ajustes Imagens';
+
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 8, 420, 20);
+  L.Caption := 'Ajuste de Imagem (Componentes CHATGPT)';
+  L.Font.Style := [fsBold];
+
+  // Brilho
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 35, 75, 20); L.Caption := 'Brilho:';
+  FLblBrightnessVal := TLabel.Create(Self); FLblBrightnessVal.Parent := FTabImageAdjust;
+  FLblBrightnessVal.SetBounds(390, 35, 45, 20); FLblBrightnessVal.Caption := '0';
+  FTrkBrightness := TTrackBar.Create(Self); FTrkBrightness.Parent := FTabImageAdjust;
+  FTrkBrightness.SetBounds(85, 32, 300, 28);
+  FTrkBrightness.Min := -100; FTrkBrightness.Max := 100; FTrkBrightness.Position := 0;
+  FTrkBrightness.TickStyle := tsNone;
+  FTrkBrightness.OnChange := @ImageAdjustChange;
+
+  // Contraste
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 67, 75, 20); L.Caption := 'Contraste:';
+  FLblContrastVal := TLabel.Create(Self); FLblContrastVal.Parent := FTabImageAdjust;
+  FLblContrastVal.SetBounds(390, 67, 45, 20); FLblContrastVal.Caption := '1.00x';
+  FTrkContrast := TTrackBar.Create(Self); FTrkContrast.Parent := FTabImageAdjust;
+  FTrkContrast.SetBounds(85, 64, 300, 28);
+  FTrkContrast.Min := -100; FTrkContrast.Max := 100; FTrkContrast.Position := 0;
+  FTrkContrast.TickStyle := tsNone;
+  FTrkContrast.OnChange := @ImageAdjustChange;
+
+  // Balanço de Cor RGB
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 102, 420, 20);
+  L.Caption := 'Balan' + Chr(231) + 'o de Cor / Ganhos RGB (TAIFrameProcessor):';
+  L.Font.Style := [fsBold];
+
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 128, 75, 20); L.Caption := 'Vermelho:'; L.Font.Color := clMaroon;
+  FLblRedGainVal := TLabel.Create(Self); FLblRedGainVal.Parent := FTabImageAdjust;
+  FLblRedGainVal.SetBounds(390, 128, 45, 20); FLblRedGainVal.Caption := '1.00x';
+  FTrkRedGain := TTrackBar.Create(Self); FTrkRedGain.Parent := FTabImageAdjust;
+  FTrkRedGain.SetBounds(85, 125, 300, 28);
+  FTrkRedGain.Min := 0; FTrkRedGain.Max := 200; FTrkRedGain.Position := 100;
+  FTrkRedGain.TickStyle := tsNone;
+  FTrkRedGain.OnChange := @ImageAdjustChange;
+
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 160, 75, 20); L.Caption := 'Verde:'; L.Font.Color := clGreen;
+  FLblGreenGainVal := TLabel.Create(Self); FLblGreenGainVal.Parent := FTabImageAdjust;
+  FLblGreenGainVal.SetBounds(390, 160, 45, 20); FLblGreenGainVal.Caption := '1.00x';
+  FTrkGreenGain := TTrackBar.Create(Self); FTrkGreenGain.Parent := FTabImageAdjust;
+  FTrkGreenGain.SetBounds(85, 157, 300, 28);
+  FTrkGreenGain.Min := 0; FTrkGreenGain.Max := 200; FTrkGreenGain.Position := 100;
+  FTrkGreenGain.TickStyle := tsNone;
+  FTrkGreenGain.OnChange := @ImageAdjustChange;
+
+  L := TLabel.Create(Self); L.Parent := FTabImageAdjust;
+  L.SetBounds(8, 192, 75, 20); L.Caption := 'Azul:'; L.Font.Color := clNavy;
+  FLblBlueGainVal := TLabel.Create(Self); FLblBlueGainVal.Parent := FTabImageAdjust;
+  FLblBlueGainVal.SetBounds(390, 192, 45, 20); FLblBlueGainVal.Caption := '1.00x';
+  FTrkBlueGain := TTrackBar.Create(Self); FTrkBlueGain.Parent := FTabImageAdjust;
+  FTrkBlueGain.SetBounds(85, 189, 300, 28);
+  FTrkBlueGain.Min := 0; FTrkBlueGain.Max := 200; FTrkBlueGain.Position := 100;
+  FTrkBlueGain.TickStyle := tsNone;
+  FTrkBlueGain.OnChange := @ImageAdjustChange;
+
+  // Grayscale
+  FChkGrayscale := TCheckBox.Create(Self); FChkGrayscale.Parent := FTabImageAdjust;
+  FChkGrayscale.SetBounds(8, 226, 260, 24);
+  FChkGrayscale.Caption := 'Converter para Tons de Cinza';
+  FChkGrayscale.OnChange := @ImageAdjustChange;
+
+  // Botões
+  FBtnApplyAdjust := TButton.Create(Self); FBtnApplyAdjust.Parent := FTabImageAdjust;
+  FBtnApplyAdjust.SetBounds(8, 265, 125, 32);
+  FBtnApplyAdjust.Caption := 'Aplicar Ajustes';
+  FBtnApplyAdjust.OnClick := @ImageAdjustChange;
+
+  FBtnResetAdjust := TButton.Create(Self); FBtnResetAdjust.Parent := FTabImageAdjust;
+  FBtnResetAdjust.SetBounds(138, 265, 135, 32);
+  FBtnResetAdjust.Caption := 'Restaurar Padr' + Chr(227) + 'o';
+  FBtnResetAdjust.OnClick := @ResetAdjustClick;
+
+  FBtnSaveAdjusted := TButton.Create(Self); FBtnSaveAdjusted.Parent := FTabImageAdjust;
+  FBtnSaveAdjusted.SetBounds(278, 265, 150, 32);
+  FBtnSaveAdjusted.Caption := 'Salvar Imagem...';
+  FBtnSaveAdjusted.OnClick := @SaveAdjustedClick;
+
+  // Status
+  FLblAdjustStatus := TLabel.Create(Self); FLblAdjustStatus.Parent := FTabImageAdjust;
+  FLblAdjustStatus.SetBounds(8, 310, 420, 36);
+  FLblAdjustStatus.WordWrap := True;
+  FLblAdjustStatus.Font.Color := clGray;
+  FLblAdjustStatus.Caption := 'Ajustes usando TBrightnessContrastFilter e TAIFrameProcessor do CHATGPT.';
+
   // --- Painel Inferior (Status Bar) ---
   FBottom := TPanel.Create(Self); FBottom.Parent := Self;
   FBottom.Align := alBottom; FBottom.Height := 28; FBottom.BevelOuter := bvNone;
@@ -859,6 +997,8 @@ begin
     FCbCameras.Enabled := True;
     FBtnRefreshCameras.Enabled := True;
     FBtnCaptureCamera.Enabled := True;
+    if Assigned(FBtnSearchImage) then
+      FBtnSearchImage.Enabled := False;
     RefreshCamerasClick(nil);
     SetStatus('Modo Câmera selecionado. Escolha a câmera e clique em Capturar.');
   end
@@ -868,7 +1008,9 @@ begin
     FCbCameras.Enabled := False;
     FBtnRefreshCameras.Enabled := False;
     FBtnCaptureCamera.Enabled := False;
-    SetStatus('Modo Arquivo selecionado. Carregue uma imagem do disco.');
+    if Assigned(FBtnSearchImage) then
+      FBtnSearchImage.Enabled := True;
+    SetStatus('Modo Arquivo selecionado. Clique em Pesquisar para selecionar uma imagem.');
   end;
 end;
 
@@ -1002,9 +1144,9 @@ end;
 
 procedure TfrmMain.CalibrateClick(Sender: TObject);
 begin
-  if (FCurrentImage = '') or (FImage.Picture.Graphic = nil) then
+  if (FCurrentImage = '') or not FileExists(FCurrentImage) or (FImage.Picture.Graphic = nil) then
   begin
-    ShowMessage('Carregue uma imagem de régua micrométrica para calibrar.');
+    ShowMessage('Carregue uma imagem ou capture da c' + Chr(226) + 'mera antes de calibrar a r' + Chr(233) + 'gua.');
     Exit;
   end;
 
@@ -1012,14 +1154,17 @@ begin
   if FCalibrating then
   begin
     FCalibStep := 1;
-    FBtnCalibrate.Caption := 'Cancelar Calibração';
-    SetStatus('CALIBRAÇÃO: Clique no PONTO A da régua micrométrica na imagem.');
+    FImage.Cursor := crCross;
+    FBtnCalibrate.Caption := 'Cancelar Calibra' + Chr(231) + Chr(227) + 'o';
+    SetStatus('CALIBRA' + Chr(199) + Chr(195) + 'O ATIVA: Clique no PONTO A (in' + Chr(237) + 'cio da medida) na imagem.');
   end
   else
   begin
     FCalibStep := 0;
-    FBtnCalibrate.Caption := 'Calibrar por régua';
-    SetStatus('Calibração cancelada.');
+    FImage.Cursor := crDefault;
+    FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
+    SetStatus('Calibra' + Chr(231) + Chr(227) + 'o cancelada.');
+    DrawDetections;
   end;
 end;
 
@@ -1655,16 +1800,14 @@ var
   CandidateBars: array[0..4] of Double = (5.0, 10.0, 20.0, 50.0, 100.0);
   BestDiff, CurrLen: Double;
 begin
-  if FCurrentImage = '' then Exit;
-  FImage.Picture.LoadFromFile(FCurrentImage);
-  if FImage.Picture.Graphic = nil then Exit;
+  if (FCurrentImage = '') or not FileExists(FCurrentImage) then Exit;
 
-  Bmp := TBitmap.Create;
+  Bmp := GetProcessedBaseBitmap;
+  if Bmp = nil then Exit;
+
   Tokens := TStringList.Create;
   XY := TStringList.Create;
   try
-    Bmp.SetSize(FImage.Picture.Graphic.Width, FImage.Picture.Graphic.Height);
-    Bmp.Canvas.Draw(0, 0, FImage.Picture.Graphic);
     Bmp.Canvas.Brush.Style := bsClear;
     Bmp.Canvas.Font.Size := 9;
 
@@ -1772,16 +1915,53 @@ begin
       Bmp.Canvas.TextOut(BarX1 + Max(2, (BarPxLen - 45) div 2), BarY1 - 18, Format('%.0f µm', [BarUM]));
     end;
 
-    // Marcador de calibração se estiver calibrando
-    if FCalibrating and (FCalibStep >= 2) then
+    // Marcadores de calibracao na regua
+    if FCalibrating then
     begin
-      Bmp.Canvas.Pen.Color := clRed;
-      Bmp.Canvas.Pen.Width := 3;
-      Bmp.Canvas.Brush.Style := bsClear;
-      Bmp.Canvas.Ellipse(FCalibPointA.X - 5, FCalibPointA.Y - 5, FCalibPointA.X + 5, FCalibPointA.Y + 5);
-      Bmp.Canvas.Font.Color := clRed;
-      Bmp.Canvas.Font.Style := [fsBold];
-      Bmp.Canvas.TextOut(FCalibPointA.X + 8, FCalibPointA.Y - 8, 'Ponto A');
+      if FCalibStep >= 2 then
+      begin
+        // Ponto A: Mira em cruz e circulo
+        Bmp.Canvas.Pen.Color := clRed;
+        Bmp.Canvas.Pen.Width := 3;
+        Bmp.Canvas.Brush.Style := bsClear;
+        Bmp.Canvas.Ellipse(FCalibPointA.X - 10, FCalibPointA.Y - 10, FCalibPointA.X + 10, FCalibPointA.Y + 10);
+        Bmp.Canvas.Pen.Width := 2;
+        Bmp.Canvas.Line(FCalibPointA.X - 18, FCalibPointA.Y, FCalibPointA.X + 18, FCalibPointA.Y);
+        Bmp.Canvas.Line(FCalibPointA.X, FCalibPointA.Y - 18, FCalibPointA.X, FCalibPointA.Y + 18);
+
+        Bmp.Canvas.Brush.Style := bsSolid;
+        Bmp.Canvas.Brush.Color := clBlack;
+        Bmp.Canvas.Font.Color := clYellow;
+        Bmp.Canvas.Font.Style := [fsBold];
+        Bmp.Canvas.Font.Size := 10;
+        Bmp.Canvas.TextOut(FCalibPointA.X + 14, FCalibPointA.Y - 14, 'Ponto A');
+        Bmp.Canvas.Brush.Style := bsClear;
+      end;
+
+      if FCalibStep >= 3 then
+      begin
+        // Linha A -> B
+        Bmp.Canvas.Pen.Color := clAqua;
+        Bmp.Canvas.Pen.Width := 3;
+        Bmp.Canvas.Line(FCalibPointA.X, FCalibPointA.Y, FCalibPointB.X, FCalibPointB.Y);
+
+        // Ponto B
+        Bmp.Canvas.Pen.Color := clLime;
+        Bmp.Canvas.Pen.Width := 3;
+        Bmp.Canvas.Brush.Style := bsClear;
+        Bmp.Canvas.Ellipse(FCalibPointB.X - 10, FCalibPointB.Y - 10, FCalibPointB.X + 10, FCalibPointB.Y + 10);
+        Bmp.Canvas.Pen.Width := 2;
+        Bmp.Canvas.Line(FCalibPointB.X - 18, FCalibPointB.Y, FCalibPointB.X + 18, FCalibPointB.Y);
+        Bmp.Canvas.Line(FCalibPointB.X, FCalibPointB.Y - 18, FCalibPointB.X, FCalibPointB.Y + 18);
+
+        Bmp.Canvas.Brush.Style := bsSolid;
+        Bmp.Canvas.Brush.Color := clBlack;
+        Bmp.Canvas.Font.Color := clLime;
+        Bmp.Canvas.Font.Style := [fsBold];
+        Bmp.Canvas.Font.Size := 10;
+        Bmp.Canvas.TextOut(FCalibPointB.X + 14, FCalibPointB.Y - 14, 'Ponto B');
+        Bmp.Canvas.Brush.Style := bsClear;
+      end;
     end;
 
     FImage.Picture.Assign(Bmp);
@@ -2383,7 +2563,7 @@ begin
     begin
       FCalibPointA := Point(IX, IY);
       FCalibStep := 2;
-      SetStatus(Format('Ponto A definido em (%d, %d). Clique agora no PONTO B da régua.', [IX, IY]));
+      SetStatus(Format('Ponto A marcado em (%d, %d). Clique agora no PONTO B da r' + Chr(233) + 'gua.', [IX, IY]));
       DrawDetections;
       Exit;
     end
@@ -2393,12 +2573,19 @@ begin
       DistPX := Sqrt(Sqr(FCalibPointB.X - FCalibPointA.X) + Sqr(FCalibPointB.Y - FCalibPointA.Y));
       if DistPX < 2.0 then
       begin
-        ShowMessage('Os pontos A e B estão muito próximos. Selecione uma distância maior na régua.');
+        ShowMessage('Os pontos A e B est' + Chr(227) + 'o muito pr' + Chr(243) + 'ximos (menos de 2 px). Selecione uma dist' + Chr(226) + 'ncia maior na r' + Chr(233) + 'gua.');
         Exit;
       end;
 
+      FCalibStep := 3;
+      DrawDetections;
+      Application.ProcessMessages;
+
       RealDistStr := '10.0';
-      if InputQuery('Calibração Micrométrica', 'Distância real entre os pontos (µm):', RealDistStr) then
+      if InputQuery('Calibra' + Chr(231) + Chr(227) + 'o Microm' + Chr(233) + 'trica',
+                    Format('Dist' + Chr(226) + 'ncia marcada: %.1f pixels' + LineEnding +
+                           'Informe a dist' + Chr(226) + 'ncia real correspondente na r' + Chr(233) + 'gua (' + Chr(181) + 'm):', [DistPX]),
+                    RealDistStr) then
       begin
         FS := DefaultFormatSettings; FS.DecimalSeparator := '.';
         RealDistUM := StrToFloatDef(StringReplace(RealDistStr, ',', '.', [rfReplaceAll]), 0, FS);
@@ -2413,14 +2600,37 @@ begin
           FEdScaleUmPerPx.Text := FormatFloat('0.00000', NewScale);
           FCalibrating := False;
           FCalibStep := 0;
-          FBtnCalibrate.Caption := 'Calibrar por régua';
-          ShowMessage(Format('Calibração concluída!' + LineEnding +
-            'Distância: %.1f px = %.2f µm' + LineEnding +
-            'Nova escala: %.5f µm/pixel', [DistPX, RealDistUM, NewScale]));
+          FImage.Cursor := crDefault;
+          FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
+          ShowMessage(Format('Calibra' + Chr(231) + Chr(227) + 'o Microm' + Chr(233) + 'trica Conclu' + Chr(237) + 'da com Sucesso!' + LineEnding + LineEnding +
+            Chr(149) + ' Dist' + Chr(226) + 'ncia na r' + Chr(233) + 'gua: %.1f px = %.2f ' + Chr(181) + 'm' + LineEnding +
+            Chr(149) + ' Nova escala calculada: %.5f ' + Chr(181) + 'm/pixel' + LineEnding +
+            Chr(149) + ' Todas as medi' + Chr(231) + Chr(245) + 'es e morfometria foram recalculadas.', [DistPX, RealDistUM, NewScale]));
           RecalculateMorphometry;
           DrawDetections;
           BuildDeterministicReport;
+          SetStatus(Format('Calibra' + Chr(231) + Chr(227) + 'o ativa: %.5f ' + Chr(181) + 'm/px (%.1f px = %.2f ' + Chr(181) + 'm)', [NewScale, DistPX, RealDistUM]));
+          Log(Format('R' + Chr(233) + 'gua calibrada: %.1f px = %.2f ' + Chr(181) + 'm -> escala = %.5f ' + Chr(181) + 'm/px', [DistPX, RealDistUM, NewScale]));
+        end
+        else
+        begin
+          ShowMessage('Valor inv' + Chr(225) + 'lido informado. Calibra' + Chr(231) + Chr(227) + 'o mantida anterior.');
+          FCalibrating := False;
+          FCalibStep := 0;
+          FImage.Cursor := crDefault;
+          FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
+          DrawDetections;
         end;
+      end
+      else
+      begin
+        // Cancelou InputQuery
+        FCalibrating := False;
+        FCalibStep := 0;
+        FImage.Cursor := crDefault;
+        FBtnCalibrate.Caption := 'Calibrar por r' + Chr(233) + 'gua';
+        SetStatus('Calibra' + Chr(231) + Chr(227) + 'o cancelada pelo usu' + Chr(225) + 'rio.');
+        DrawDetections;
       end;
       Exit;
     end;
@@ -2757,6 +2967,238 @@ begin
   FBtnSummary.Enabled := FSampleID > 0;
   FBtnNewField.Enabled := FSampleID > 0;
   SetStatus('Pronto.');
+end;
+
+
+procedure TfrmMain.ConfidenceTrackChange(Sender: TObject);
+var
+  FS: TFormatSettings;
+begin
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+  if Assigned(FEdConfidence) then
+  begin
+    FEdConfidence.OnChange := nil;
+    FEdConfidence.Text := FormatFloat('0.00', FTrkConfidence.Position / 100.0, FS);
+    FEdConfidence.OnChange := @ConfidenceEditChange;
+  end;
+end;
+
+procedure TfrmMain.ConfidenceEditChange(Sender: TObject);
+var
+  V: Double;
+  PosVal: Integer;
+begin
+  if not Assigned(FTrkConfidence) then Exit;
+  V := ConfidenceValue;
+  PosVal := Round(V * 100);
+  if (PosVal >= FTrkConfidence.Min) and (PosVal <= FTrkConfidence.Max) and (FTrkConfidence.Position <> PosVal) then
+  begin
+    FTrkConfidence.OnChange := nil;
+    FTrkConfidence.Position := PosVal;
+    FTrkConfidence.OnChange := @ConfidenceTrackChange;
+  end;
+end;
+
+function TfrmMain.GetProcessedBaseBitmap: TBitmap;
+var
+  Pic: TPicture;
+  SrcBmp, AdjBmp: TBitmap;
+  IntfImg: TLazIntfImage;
+  ContrastFilter: TBrightnessContrastFilter;
+  FrameProc: TAIFrameProcessor;
+  NeedsContrast, NeedsColor: Boolean;
+begin
+  Result := nil;
+  if (FCurrentImage = '') or not FileExists(FCurrentImage) then Exit;
+
+  Pic := TPicture.Create;
+  SrcBmp := TBitmap.Create;
+  try
+    try
+      Pic.LoadFromFile(FCurrentImage);
+      if (Pic.Graphic = nil) or (Pic.Graphic.Width <= 0) or (Pic.Graphic.Height <= 0) then
+      begin
+        SrcBmp.Free;
+        Exit(nil);
+      end;
+      SrcBmp.SetSize(Pic.Graphic.Width, Pic.Graphic.Height);
+      SrcBmp.Canvas.Draw(0, 0, Pic.Graphic);
+    except
+      SrcBmp.Free;
+      Exit(nil);
+    end;
+  finally
+    Pic.Free;
+  end;
+
+  NeedsContrast := Assigned(FTrkBrightness) and Assigned(FTrkContrast) and
+                   ((FTrkBrightness.Position <> 0) or (FTrkContrast.Position <> 0));
+
+  NeedsColor := Assigned(FTrkRedGain) and Assigned(FTrkGreenGain) and Assigned(FTrkBlueGain) and Assigned(FChkGrayscale) and
+                ((FTrkRedGain.Position <> 100) or (FTrkGreenGain.Position <> 100) or
+                 (FTrkBlueGain.Position <> 100) or FChkGrayscale.Checked);
+
+  // 1. Aplica Contraste e Brilho usando TBrightnessContrastFilter do pacote CHATGPT
+  if NeedsContrast then
+  begin
+    ContrastFilter := TBrightnessContrastFilter.Create(nil);
+    IntfImg := TLazIntfImage.Create(0, 0);
+    try
+      ContrastFilter.Brightness := FTrkBrightness.Position;
+      if FTrkContrast.Position >= 0 then
+        ContrastFilter.Contrast := 1.0 + (FTrkContrast.Position / 50.0)
+      else
+        ContrastFilter.Contrast := Max(0.05, 1.0 + (FTrkContrast.Position / 105.0));
+
+      IntfImg.LoadFromBitmap(SrcBmp.Handle, SrcBmp.MaskHandle);
+      TBrightnessContrastHelper(ContrastFilter).ProcessImage(IntfImg);
+      SrcBmp.LoadFromIntfImage(IntfImg);
+    finally
+      IntfImg.Free;
+      ContrastFilter.Free;
+    end;
+  end;
+
+  // 2. Aplica Balanço de Cor (Ganhos RGB) e Tons de Cinza usando TAIFrameProcessor do CHATGPT
+  if NeedsColor then
+  begin
+    FrameProc := TAIFrameProcessor.Create(nil);
+    try
+      FrameProc.EnableChannelAdjustments := True;
+      FrameProc.RedGain := FTrkRedGain.Position / 100.0;
+      FrameProc.GreenGain := FTrkGreenGain.Position / 100.0;
+      FrameProc.BlueGain := FTrkBlueGain.Position / 100.0;
+      FrameProc.Grayscale := FChkGrayscale.Checked;
+
+      AdjBmp := FrameProc.ProcessBitmap(SrcBmp);
+      if Assigned(AdjBmp) then
+      begin
+        SrcBmp.Assign(AdjBmp);
+        AdjBmp.Free;
+      end;
+    finally
+      FrameProc.Free;
+    end;
+  end;
+
+  Result := SrcBmp;
+end;
+
+procedure TfrmMain.ApplyImageAdjustments;
+var
+  Bmp: TBitmap;
+begin
+  if (FCurrentImage = '') or not FileExists(FCurrentImage) then
+  begin
+    if Assigned(FLblAdjustStatus) then
+      FLblAdjustStatus.Caption := 'Nenhuma imagem carregada para ajustar.';
+    Exit;
+  end;
+
+  if Assigned(FLblBrightnessVal) then
+    FLblBrightnessVal.Caption := IntToStr(FTrkBrightness.Position);
+
+  if Assigned(FLblContrastVal) then
+  begin
+    if FTrkContrast.Position >= 0 then
+      FLblContrastVal.Caption := FormatFloat('0.00x', 1.0 + (FTrkContrast.Position / 50.0))
+    else
+      FLblContrastVal.Caption := FormatFloat('0.00x', Max(0.05, 1.0 + (FTrkContrast.Position / 105.0)));
+  end;
+
+  if Assigned(FLblRedGainVal) then
+    FLblRedGainVal.Caption := FormatFloat('0.00x', FTrkRedGain.Position / 100.0);
+  if Assigned(FLblGreenGainVal) then
+    FLblGreenGainVal.Caption := FormatFloat('0.00x', FTrkGreenGain.Position / 100.0);
+  if Assigned(FLblBlueGainVal) then
+    FLblBlueGainVal.Caption := FormatFloat('0.00x', FTrkBlueGain.Position / 100.0);
+
+  if Length(FObjects) > 0 then
+    DrawDetections
+  else
+  begin
+    Bmp := GetProcessedBaseBitmap;
+    if Assigned(Bmp) then
+    begin
+      try
+        FImage.Picture.Assign(Bmp);
+        if Assigned(FLblAdjustStatus) then
+          FLblAdjustStatus.Caption := 'Ajustes aplicados na imagem sendo exibida.';
+      finally
+        Bmp.Free;
+      end;
+    end;
+  end;
+end;
+
+procedure TfrmMain.ImageAdjustChange(Sender: TObject);
+begin
+  ApplyImageAdjustments;
+end;
+
+procedure TfrmMain.ResetAdjustClick(Sender: TObject);
+begin
+  FTrkBrightness.OnChange := nil;
+  FTrkContrast.OnChange := nil;
+  FTrkRedGain.OnChange := nil;
+  FTrkGreenGain.OnChange := nil;
+  FTrkBlueGain.OnChange := nil;
+  FChkGrayscale.OnChange := nil;
+  try
+    FTrkBrightness.Position := 0;
+    FTrkContrast.Position := 0;
+    FTrkRedGain.Position := 100;
+    FTrkGreenGain.Position := 100;
+    FTrkBlueGain.Position := 100;
+    FChkGrayscale.Checked := False;
+  finally
+    FTrkBrightness.OnChange := @ImageAdjustChange;
+    FTrkContrast.OnChange := @ImageAdjustChange;
+    FTrkRedGain.OnChange := @ImageAdjustChange;
+    FTrkGreenGain.OnChange := @ImageAdjustChange;
+    FTrkBlueGain.OnChange := @ImageAdjustChange;
+    FChkGrayscale.OnChange := @ImageAdjustChange;
+  end;
+
+  ApplyImageAdjustments;
+  if Assigned(FLblAdjustStatus) then
+    FLblAdjustStatus.Caption := 'Ajustes restaurados para os valores originais.';
+end;
+
+procedure TfrmMain.SaveAdjustedClick(Sender: TObject);
+var
+  Bmp: TBitmap;
+  SaveDlg: TSaveDialog;
+begin
+  if (FCurrentImage = '') or (FImage.Picture.Graphic = nil) then
+  begin
+    ShowMessage('Nenhuma imagem carregada para salvar.');
+    Exit;
+  end;
+  SaveDlg := TSaveDialog.Create(Self);
+  try
+    SaveDlg.Title := 'Salvar Imagem Ajustada';
+    SaveDlg.Filter := 'Imagem PNG (*.png)|*.png|Imagem JPEG (*.jpg;*.jpeg)|*.jpg;*.jpeg|Bitmap (*.bmp)|*.bmp';
+    SaveDlg.DefaultExt := 'png';
+    if SaveDlg.Execute then
+    begin
+      Bmp := GetProcessedBaseBitmap;
+      if Assigned(Bmp) then
+      begin
+        try
+          Bmp.SaveToFile(SaveDlg.FileName);
+          if Assigned(FLblAdjustStatus) then
+            FLblAdjustStatus.Caption := 'Imagem salva em: ' + ExtractFileName(SaveDlg.FileName);
+          Log('Imagem ajustada salva com sucesso: ' + SaveDlg.FileName);
+        finally
+          Bmp.Free;
+        end;
+      end;
+    end;
+  finally
+    SaveDlg.Free;
+  end;
 end;
 
 end.

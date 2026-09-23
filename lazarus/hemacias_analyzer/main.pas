@@ -678,7 +678,7 @@ begin
 
   FChkShowScaleBar := TCheckBox.Create(Self); FChkShowScaleBar.Parent := FOpticsPanel;
   FChkShowScaleBar.SetBounds(545, 42, 115, 23);
-  FChkShowScaleBar.Caption := 'Barra de escala';
+  FChkShowScaleBar.Caption := 'R' + Chr(233) + 'guas escalares (X/Y)';
   FChkShowScaleBar.Checked := True;
   FChkShowScaleBar.OnChange := @OverlayCheckboxChange;
 
@@ -963,7 +963,7 @@ begin
   FRulerCorner := TPaintBox.Create(Self);
   FRulerCorner.Parent := FRulerTopPanel;
   FRulerCorner.Align := alLeft;
-  FRulerCorner.Width := 34;
+  FRulerCorner.Width := 48;
   FRulerCorner.OnPaint := @RulerCornerPaint;
   FRulerCorner.OnClick := @RulerCornerClick;
 
@@ -977,7 +977,7 @@ begin
   FRulerLeft := TPaintBox.Create(Self);
   FRulerLeft.Parent := FViewport;
   FRulerLeft.Align := alLeft;
-  FRulerLeft.Width := 34;
+  FRulerLeft.Width := 48;
   FRulerLeft.OnPaint := @RulerLeftPaint;
 
   // Imagem Microscopica Central
@@ -1236,6 +1236,10 @@ end;
 
 procedure TfrmMain.OverlayCheckboxChange(Sender: TObject);
 begin
+  if Assigned(FRulerTopPanel) then
+    FRulerTopPanel.Visible := FChkShowScaleBar.Checked;
+  if Assigned(FRulerLeft) then
+    FRulerLeft.Visible := FChkShowScaleBar.Checked;
   DrawDetections;
 end;
 
@@ -1859,12 +1863,6 @@ var
   Code, LabelText, DiamStr, IDStr: string;
   Tokens, XY: TStringList;
   Points: array of TPoint;
-  BarUM: Double;
-  BarPxLen: Integer;
-  BarX1, BarY1, BarX2, BarY2: Integer;
-  BgX1, BgY1, BgX2, BgY2: Integer;
-  CandidateBars: array[0..4] of Double = (5.0, 10.0, 20.0, 50.0, 100.0);
-  BestDiff, CurrLen: Double;
 begin
   if (FCurrentImage = '') or not FileExists(FCurrentImage) then Exit;
 
@@ -1933,52 +1931,6 @@ begin
         FormatFloat('0.0', FObjects[I].Confidence * 100) + '%' + DiamStr;
 
       Bmp.Canvas.TextOut(FObjects[I].X1 + 2, FObjects[I].Y1 + 2, LabelText);
-    end;
-
-    // Desenha Barra de Escala se habilitada
-    if FChkShowScaleBar.Checked and (FActiveScaleUmPerPx > 0.00001) then
-    begin
-      // Escolhe o melhor tamanho de barra (5, 10, 20, 50, 100 um) para ter ~80 a 160 pixels
-      BarUM := 20.0;
-      BestDiff := 9999.0;
-      for J := 0 to 4 do
-      begin
-        CurrLen := CandidateBars[J] / FActiveScaleUmPerPx;
-        if Abs(CurrLen - 120.0) < BestDiff then
-        begin
-          BestDiff := Abs(CurrLen - 120.0);
-          BarUM := CandidateBars[J];
-        end;
-      end;
-      BarPxLen := Max(10, Round(BarUM / FActiveScaleUmPerPx));
-
-      BarX2 := Bmp.Width - 25;
-      BarX1 := BarX2 - BarPxLen;
-      BarY2 := Bmp.Height - 20;
-      BarY1 := BarY2 - 6;
-
-      // Fundo preto com borda
-      BgX1 := BarX1 - 10;
-      BgY1 := BarY1 - 22;
-      BgX2 := BarX2 + 10;
-      BgY2 := BarY2 + 6;
-
-      Bmp.Canvas.Brush.Style := bsSolid;
-      Bmp.Canvas.Brush.Color := clBlack;
-      Bmp.Canvas.Pen.Color := clWhite;
-      Bmp.Canvas.Pen.Width := 1;
-      Bmp.Canvas.Rectangle(BgX1, BgY1, BgX2, BgY2);
-
-      // Barra branca
-      Bmp.Canvas.Brush.Color := clWhite;
-      Bmp.Canvas.FillRect(BarX1, BarY1, BarX2, BarY2);
-
-      // Texto da barra
-      Bmp.Canvas.Brush.Style := bsClear;
-      Bmp.Canvas.Font.Color := clWhite;
-      Bmp.Canvas.Font.Size := 10;
-      Bmp.Canvas.Font.Style := [fsBold];
-      Bmp.Canvas.TextOut(BarX1 + Max(2, (BarPxLen - 45) div 2), BarY1 - 18, Format('%.0f µm', [BarUM]));
     end;
 
     // Marcadores de calibracao na regua
@@ -3291,18 +3243,18 @@ end;
 
 procedure TfrmMain.RulerCornerPaint(Sender: TObject);
 begin
-  FRulerCorner.Canvas.Brush.Color := $DCDCDC;
+  FRulerCorner.Canvas.Brush.Color := $E8E8E8;
   FRulerCorner.Canvas.FillRect(0, 0, FRulerCorner.Width, FRulerCorner.Height);
   FRulerCorner.Canvas.Pen.Color := $A0A0A0;
   FRulerCorner.Canvas.Rectangle(0, 0, FRulerCorner.Width, FRulerCorner.Height);
 
-  FRulerCorner.Canvas.Font.Size := 7;
+  FRulerCorner.Canvas.Font.Size := 8;
   FRulerCorner.Canvas.Font.Style := [fsBold];
   FRulerCorner.Canvas.Font.Color := $202020;
   if FRulerUnitUM then
-    FRulerCorner.Canvas.TextOut(6, 6, Chr(181) + 'm')
+    FRulerCorner.Canvas.TextOut(12, 4, Chr(181) + 'm')
   else
-    FRulerCorner.Canvas.TextOut(8, 6, 'px');
+    FRulerCorner.Canvas.TextOut(14, 4, 'px');
 end;
 
 procedure TfrmMain.RulerCornerClick(Sender: TObject);
@@ -3405,7 +3357,10 @@ var
   ScreenScale, ScaleUM: Double;
   MajorStep, MinorStep, Val, ScreenY: Double;
   TextStr: string;
-  W: Integer;
+  W, BracketH, BracketY1, BracketY2: Integer;
+  CandidateBars: array[0..4] of Double = (5.0, 10.0, 20.0, 50.0, 100.0);
+  BestDiff, CurrLen, ChosenBarUM: Double;
+  J: Integer;
 begin
   W := FRulerLeft.Width;
   FRulerLeft.Canvas.Brush.Color := $F4F4F4;
@@ -3452,11 +3407,11 @@ begin
   begin
     ScreenY := OY + (Val / ScaleUM) * ScreenScale;
     if (ScreenY >= OY) and (ScreenY <= OY + DH) then
-      FRulerLeft.Canvas.Line(W - 4, Round(ScreenY), W - 1, Round(ScreenY));
+      FRulerLeft.Canvas.Line(W - 5, Round(ScreenY), W - 1, Round(ScreenY));
     Val := Val + MinorStep;
   end;
 
-  // Ticks maiores e números
+  // Ticks maiores e números da escala
   FRulerLeft.Canvas.Pen.Color := $303030;
   Val := 0.0;
   while Val <= (IH * ScaleUM) do
@@ -3464,17 +3419,58 @@ begin
     ScreenY := OY + (Val / ScaleUM) * ScreenScale;
     if (ScreenY >= OY) and (ScreenY <= OY + DH) then
     begin
-      FRulerLeft.Canvas.Line(W - 9, Round(ScreenY), W - 1, Round(ScreenY));
+      FRulerLeft.Canvas.Line(W - 10, Round(ScreenY), W - 1, Round(ScreenY));
       if MajorStep >= 1.0 then
         TextStr := Format('%.0f', [Val])
       else
         TextStr := Format('%.1f', [Val]);
-      FRulerLeft.Canvas.TextOut(2, Round(ScreenY) + 2, TextStr);
+      FRulerLeft.Canvas.TextOut(2, Round(ScreenY) - 5, TextStr);
     end;
     Val := Val + MajorStep;
   end;
 
-  // Marcador da posição do cursor (linha indicadora vermelha)
+  // Medida escalar visual (Barra de Escala) posicionada NA REGUA LATERAL
+  if (FActiveScaleUmPerPx > 0.00001) and (DH > 60) then
+  begin
+    ChosenBarUM := 20.0;
+    BestDiff := 9999.0;
+    for J := 0 to 4 do
+    begin
+      CurrLen := (CandidateBars[J] / FActiveScaleUmPerPx) * ScreenScale;
+      if (CurrLen >= 25.0) and (CurrLen <= 100.0) and (Abs(CurrLen - 50.0) < BestDiff) then
+      begin
+        BestDiff := Abs(CurrLen - 50.0);
+        ChosenBarUM := CandidateBars[J];
+      end;
+    end;
+
+    BracketH := Round((ChosenBarUM / FActiveScaleUmPerPx) * ScreenScale);
+    if (BracketH >= 15) and (BracketH <= DH - 10) then
+    begin
+      BracketY2 := OY + DH - 8;
+      BracketY1 := BracketY2 - BracketH;
+
+      // Suporte da barra de escala na lateral da regua
+      FRulerLeft.Canvas.Pen.Color := $1A5FB4; // Azul escuro destaque
+      FRulerLeft.Canvas.Pen.Width := 3;
+      FRulerLeft.Canvas.Line(W - 3, BracketY1, W - 3, BracketY2);
+      // Travessoes superior e inferior
+      FRulerLeft.Canvas.Line(W - 12, BracketY1, W - 1, BracketY1);
+      FRulerLeft.Canvas.Line(W - 12, BracketY2, W - 1, BracketY2);
+
+      // Texto de medida da barra na regua
+      FRulerLeft.Canvas.Brush.Style := bsSolid;
+      FRulerLeft.Canvas.Brush.Color := $F0F8FF;
+      FRulerLeft.Canvas.Font.Color := $1A5FB4;
+      FRulerLeft.Canvas.Font.Style := [fsBold];
+      FRulerLeft.Canvas.Font.Size := 7;
+      TextStr := Format('%.0f ' + Chr(181) + 'm', [ChosenBarUM]);
+      FRulerLeft.Canvas.TextOut(2, BracketY1 + (BracketH div 2) - 6, TextStr);
+      FRulerLeft.Canvas.Brush.Style := bsClear;
+    end;
+  end;
+
+  // Marcador da posicao do cursor
   if FMouseOverImage and (FMouseScreenY >= OY) and (FMouseScreenY <= OY + DH) then
   begin
     FRulerLeft.Canvas.Pen.Color := clRed;

@@ -34,3 +34,9 @@ lib/
 backup/
 temp/
 captures/
+# Permissoes explicitas para modelos, instalador e binario Lazarus
+!models/*.pt
+!models/*.onnx
+!models/README.md
+!bin/*.exe
+!lazarus/hemacias_analyzer/hemacias_analyzer.exe

@@ -32,8 +32,18 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+; Executavel principal do Lazarus
 Source: "D:\projetos\maurinsoft\hemacias\lazarus\hemacias_analyzer\hemacias_analyzer.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\projetos\maurinsoft\hemacias\models\*"; DestDir: "{app}\models"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Modelos de IA especializados para analise sanguinea
+Source: "D:\projetos\maurinsoft\hemacias\models\blood-seg-v1.pt"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "D:\projetos\maurinsoft\hemacias\models\best.pt"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "D:\projetos\maurinsoft\hemacias\models\blood-cell-bccd-yolov8s.pt"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "D:\projetos\maurinsoft\hemacias\models\blood-cell-bccd-yolov8n.pt"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "D:\projetos\maurinsoft\hemacias\models\blood-seg-v1.onnx"; DestDir: "{app}\models"; Flags: ignoreversion
+Source: "D:\projetos\maurinsoft\hemacias\models\README.md"; DestDir: "{app}\models"; Flags: ignoreversion
+
+; Scripts e Documentacao
 Source: "D:\projetos\maurinsoft\hemacias\python\camera_capture.py"; DestDir: "{app}\python"; Flags: ignoreversion
 Source: "D:\projetos\maurinsoft\hemacias\lazarus\hemacias_analyzer\README.md"; DestDir: "{app}"; DestName: "README_Lazarus.md"; Flags: ignoreversion
 Source: "D:\projetos\maurinsoft\hemacias\README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme

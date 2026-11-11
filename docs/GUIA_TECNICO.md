@@ -4,6 +4,9 @@ Este guia reúne o que interessa a quem desenvolve, treina modelos ou avalia a c
 
 ## Sumário
 
+- [Estrutura do repositório](#estrutura-do-repositório)
+- [Modelos incluídos](#modelos-incluídos)
+- [Testes](#testes)
 - [Contador em tempo real](#contador-em-tempo-real)
 - [Métodos de detecção](#métodos-de-detecção)
 - [Controle de qualidade da imagem](#controle-de-qualidade-da-imagem)
@@ -18,6 +21,60 @@ Este guia reúne o que interessa a quem desenvolve, treina modelos ou avalia a c
 - [Geração do instalador](#geração-do-instalador)
 - [Histórico de correções do núcleo](#histórico-de-correções-do-núcleo)
 - [Próximos passos](#próximos-passos)
+
+## Estrutura do repositório
+
+```text
+hemacias/
+├── README.md                 apresentação do projeto
+├── teste04.py                contador em tempo real (aplicação principal em Python)
+├── teste03.py                experimento antigo, mantido para comparação
+├── requirements.txt          dependências básicas (OpenCV, NumPy, Pillow)
+├── requirements-ml.txt       dependências de IA (Ultralytics/YOLO)
+├── instalar_dependencias.bat instalador das dependências Python no Windows
+├── installer_v1.0.iss        roteiros Inno Setup dos instaladores
+├── installer_v1.2.iss
+├── bin/                      instaladores prontos do Hemácias Analyzer
+├── hemacias/                 núcleo Python
+│   ├── camera.py             descoberta e abertura de câmeras
+│   ├── counter.py            método Hough, foco e estabilização da contagem
+│   ├── watershed.py          segmentação clássica com watershed
+│   ├── yolo_counter.py       contagem multiclasse com YOLO
+│   ├── quality.py            controle de qualidade da imagem
+│   └── api_client.py         cliente da API do gerenciador web
+├── python/
+│   ├── camera_capture.py     listagem e captura de câmeras por linha de comando
+│   └── tools/converte/       conversor de imagens do dataset
+├── lazarus/hemacias_analyzer/  código-fonte do aplicativo de mesa
+├── web/                      gerenciador PHP/MySQL e API
+├── tools/                    conversão, treino, auditoria e avaliação
+├── models/                   modelos YOLO
+├── esfregaco/                imagens de esfregaço para teste
+├── fotos/                    recortes de células e anotações LabelMe
+├── datasets/                 destino dos datasets convertidos (vazio no repositório)
+├── tests/                    testes do núcleo
+└── docs/                     manual, guia técnico, plano e fotos
+```
+
+## Modelos incluídos
+
+| Arquivo | Tarefa | Classes | Indicação |
+|---|---|---|---|
+| `blood-cell-bccd-yolov8n.pt` | Detecção | RBC, WBC, Platelets | Leve, para computador sem placa de vídeo |
+| `blood-cell-bccd-yolov8s.pt` | Detecção | RBC, WBC, Platelets | Equilíbrio entre velocidade e sensibilidade |
+| `blood-cell-bccd-yolov8m.pt` | Detecção | RBC, WBC, Platelets | Maior, para campos com muitas células |
+| `blood-seg-v1.pt` (igual a `best.pt`) | Segmentação | hemacia | Treinado com as anotações do próprio projeto |
+
+Os demais arquivos `yolo11*` e `yolov8*-seg` são modelos-base da Ultralytics, usados como ponto de partida de treinamento. As métricas e a origem de cada modelo estão em [`models/README.md`](../models/README.md).
+
+## Testes
+
+Os testes do núcleo ficam em `tests/` e usam o pytest:
+
+```bash
+pip install pytest
+python -m pytest tests
+```
 
 ## Contador em tempo real
 

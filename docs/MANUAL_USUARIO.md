@@ -71,6 +71,8 @@ As telas deste manual foram feitas com um paciente e uma amostra fictícios ("Pa
 
 ## 3. Instalação
 
+O roteiro completo, incluindo o painel do navegador, o contador em Python e os problemas mais comuns, está em [Instalação](INSTALACAO.md). Abaixo vai o essencial do aplicativo.
+
 ### 3.1 Instalar o Hemácias Analyzer
 
 1. Execute `HemaciasAnalyzer_Setup_v1.2.exe`, que está na pasta `bin/` do repositório.

@@ -1,5 +1,7 @@
 # Gerenciador Web
 
+> O uso do painel no dia a dia, com fotos das telas, está no [Manual do usuário](../docs/MANUAL_USUARIO.md#11-gerenciador-web). Este arquivo trata de instalação, API e segurança.
+
 Requisitos:
 
 - PHP 8.1+

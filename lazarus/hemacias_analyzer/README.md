@@ -4,6 +4,8 @@ Aplicação desktop profissional para análise microscópica, contagem celular m
 
 Utiliza a suíte Lazarus AI do repositório `marcelomaurin/CHATGPT`.
 
+> Para aprender a usar o aplicativo, com fotos de cada tela, veja o [Manual do usuário](../../docs/MANUAL_USUARIO.md). Este arquivo trata de requisitos, compilação e estrutura do código.
+
 ---
 
 ## 1. Funcionalidades Principais

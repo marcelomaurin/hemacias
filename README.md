@@ -1,29 +1,97 @@
 # Hemácias
 
-Projeto experimental para **detecção e contagem de hemácias em imagens de microscopia usando visão computacional**.
+Detecção, contagem e medição de hemácias e outros componentes do sangue em imagens de microscopia, usando visão computacional clássica (OpenCV) e redes neurais (YOLO).
 
-O artigo que originou o trabalho está disponível em:
-https://maurinsoft.com.br/projeto-contagem-de-hemacias/
+![Hemácias Analyzer com uma lâmina analisada](docs/screenshot.PNG)
 
-## Situação atual
+> **Projeto experimental e educacional.** Nenhum resultado produzido aqui substitui o hemograma automatizado nem a conferência de um profissional habilitado. A contagem automática precisa ser validada contra um método de referência antes de qualquer uso laboratorial ou diagnóstico.
 
-O projeto utiliza OpenCV para captura de vídeo, pré-processamento da imagem e detecção circular. A versão atual foi refatorada para separar câmera, processamento e interface, corrigir o gerenciamento da câmera e estabilizar a contagem entre vários frames.
+O artigo que deu origem ao trabalho está em <https://maurinsoft.com.br/projeto-contagem-de-hemacias/>.
 
-> **Importante:** este projeto é experimental e educacional. A contagem automática deve ser validada contra um método de referência antes de qualquer uso laboratorial ou diagnóstico.
+## Documentação
 
-## Estrutura
+| Documento | Para quem | Conteúdo |
+|---|---|---|
+| [Manual do usuário](docs/MANUAL_USUARIO.md) | Quem vai operar o sistema | Instalação, uso do Hemácias Analyzer passo a passo, painel web, solução de problemas |
+| [Guia técnico](docs/GUIA_TECNICO.md) | Quem desenvolve ou treina modelos | Linha de comando, treinamento YOLO, preparação do dataset, avaliação e validação |
+| [Aplicativo Lazarus](lazarus/hemacias_analyzer/README.md) | Quem compila o aplicativo | Requisitos, compilação e unidades Pascal |
+| [Gerenciador web](web/README.md) | Quem hospeda o painel | Instalação PHP/MySQL, API, segurança e migrações |
+| [Modelos](models/README.md) | Quem escolhe o modelo de IA | Modelos incluídos, classes e métricas |
+| [Auditoria do dataset](docs/DATASET_AUDIT.md) | Quem anota imagens | Cobertura atual das anotações e pendências |
+| [Plano de melhorias](docs/PLANO_MELHORIAS.md) | Quem planeja a evolução | Fases previstas e prioridades |
 
-- `hemacias/camera.py`: descoberta e abertura de câmeras.
-- `hemacias/counter.py`: pré-processamento, avaliação de foco, detecção e estabilização da contagem.
-- `teste04.py`: aplicação principal em tempo real.
-- `teste03.py`: experimento legado mantido para comparação.
-- `python/tools/converte/converte.py`: conversor portátil de imagens do dataset.
-- `fotos/`: imagens e anotações experimentais/LabelMe.
-- `tests/`: testes básicos do núcleo.
-- `web/`: gerenciador PHP/MySQL, API, pacientes, amostras, contagens e imagens.
-- `docs/PLANO_MELHORIAS.md`: plano de evolução técnica e validação.
+## O que o projeto contém
 
-## Instalação
+| Parte | Pasta | O que faz |
+|---|---|---|
+| **Hemácias Analyzer** | `lazarus/hemacias_analyzer/`, `bin/` | Aplicativo de mesa para Windows: carrega ou captura a imagem da lâmina, conta por classe com YOLO, mede cada célula, calibra a escala e envia o resultado ao servidor |
+| **Contador em tempo real** | `teste04.py`, `hemacias/` | Programa Python de linha de comando que conta ao vivo pela câmera do microscópio, com três métodos: Hough, Watershed e YOLO |
+| **Gerenciador web** | `web/` | Painel PHP/MySQL com pacientes, amostras, contagens, imagens, revisão de anotações, dataset de treino e cadastro de modelos |
+| **Ferramentas de treino e avaliação** | `tools/` | Conversão LabelMe → YOLO, treinamento, verificação do dataset e comparação com contagem manual |
+| **Modelos de IA** | `models/` | Modelos YOLO prontos para hemácias, leucócitos e plaquetas |
+| **Imagens de exemplo** | `esfregaco/`, `fotos/` | Esfregaços, recortes de células e anotações LabelMe |
+
+### Como as partes se ligam
+
+```mermaid
+flowchart LR
+    M[Microscópio com câmera] --> A[Hemácias Analyzer<br>Windows]
+    M --> P[Contador em tempo real<br>teste04.py]
+    A -->|contagem, imagem,<br>medições e revisão| W[Gerenciador web<br>PHP + MySQL]
+    P -->|contagem e imagem| W
+    W -->|protocolo e modelo<br>da amostra| A
+    W -->|dataset aprovado| T[Ferramentas de treino<br>tools/]
+    T -->|modelo novo e métricas| W
+```
+
+O aplicativo e o contador funcionam sozinhos. O gerenciador web é opcional e entra quando se quer guardar o histórico por paciente e amostra, revisar as detecções e montar o dataset de treino.
+
+## Fotos
+
+### Hemácias Analyzer
+
+| Lâmina carregada, com réguas em µm | Controle de qualidade recusando um campo |
+|---|---|
+| ![Lâmina carregada](docs/img/analisador/lamina-carregada.png) | ![Campo rejeitado](docs/img/analisador/campo-rejeitado.png) |
+
+| Calibração por régua micrométrica | Morfometria por célula |
+|---|---|
+| ![Calibração por régua](docs/img/analisador/calibracao-regua.png) | ![Morfometria](docs/img/analisador/morfometria.png) |
+
+| Índices hematológicos (VCM, HCM, CHCM) | Revisão humana salva no servidor |
+|---|---|
+| ![Dados clínicos](docs/img/analisador/dados-clinicos.png) | ![Revisão manual](docs/img/analisador/revisao-manual.png) |
+
+### Gerenciador web
+
+| Amostra com contagens e imagens | Consolidação dos campos da amostra |
+|---|---|
+| ![Amostra](docs/img/web/amostra.png) | ![Análise da amostra](docs/img/web/analise-amostra.png) |
+
+| Gerenciador de dataset | Anotação de imagem |
+|---|---|
+| ![Dataset](docs/img/web/dataset.png) | ![Anotação](docs/img/web/anotacao.png) |
+
+### Imagens de microscopia do repositório
+
+| Esfregaço de exemplo (`esfregaco/`) | Captura do microscópio do projeto (`fotos/captura.JPG`) |
+|---|---|
+| ![Esfregaço padrão](esfregaco/esfregaco_padrao_01.jpg) | ![Captura do microscópio](fotos/captura.JPG) |
+
+As telas acima usam um paciente e uma amostra fictícios, criados só para a documentação.
+
+## Começo rápido
+
+### 1. Aplicativo para Windows
+
+1. Baixe e execute [`bin/HemaciasAnalyzer_Setup_v1.2.exe`](bin/HemaciasAnalyzer_Setup_v1.2.exe).
+2. Instale o Python 3.10 ou superior, marcando a opção de adicioná-lo ao PATH.
+3. Rode o atalho **Instalar Dependencias de IA e Camera (Python)** criado no menu Iniciar.
+4. Abra o **Hemacias Analyzer**, clique em **Carregar lâmina**, escolha a imagem e clique em **Analisar**.
+
+O passo a passo completo, com fotos de cada tela, está no [Manual do usuário](docs/MANUAL_USUARIO.md).
+
+### 2. Contador em tempo real (Python)
 
 Requer Python 3.10 ou superior.
 
@@ -45,389 +113,108 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Uso
-
-Listar câmeras:
-
-```bash
-python teste04.py --list-videos
-```
-
-Executar com a câmera padrão:
-
-```bash
-python teste04.py
-```
-
-Selecionar outra câmera:
-
-```bash
-python teste04.py --index 1
-```
-
-Ajustar a faixa de tamanho esperada:
-
-```bash
-python teste04.py --min-radius 15 --max-radius 35
-```
-
-Usar o novo método de segmentação:
-
-```bash
-python teste04.py --method watershed --min-radius 15 --max-radius 35
-```
-
-Comparar com o método anterior:
-
-```bash
-python teste04.py --method hough
-```
-
-O `watershed` é agora o método padrão porque permite separar melhor objetos celulares adjacentes. Ele continua sendo experimental e precisa ser calibrado com imagens reais.
-
-Durante a execução:
-
-- `Q`: encerra.
-- `C`: limpa o histórico usado para estabilizar a contagem.
-- `S`: quando a API está configurada, registra o frame, a contagem e as detecções no gerenciador web.
-
-## Gerenciador web PHP/MySQL
-
-O diretório `web/` contém o sistema de gestão com:
-
-- autenticação e perfis;
-- cadastro de pacientes;
-- várias amostras por paciente;
-- várias contagens por amostra;
-- vários componentes sanguíneos por contagem;
-- várias imagens por amostra;
-- escala, magnificação, foco e método;
-- API autenticada por chave para integração com Python;
-- auditoria administrativa.
-
-Instalação resumida:
-
-1. importe `web/schema.sql`;
-2. copie `web/config.example.php` para `web/config.php`;
-3. configure MySQL, chaves e URL;
-4. acesse `web/install.php` para criar o primeiro administrador.
-
-Consulte `web/README.md` para os detalhes.
-
-Exemplo de integração Python:
-
-```bash
-python teste04.py \
-  --api-url https://servidor/hemacias/web \
-  --api-key SUA_CHAVE \
-  --patient-name "Paciente de teste" \
-  --patient-external-id PAC-0001 \
-  --sample-code AMOSTRA-0001 \
-  --scale-label 40x \
-  --magnification 40
-```
-
-Hough e Watershed continuam especializados em hemácias. O método YOLO agora é multiclasse e envia uma contagem separada para cada classe prevista pelo modelo, como hemácia, leucócito, plaqueta e artefato.
-
-## O que foi corrigido
-
-A implementação anterior mantinha como resultado o maior número de círculos encontrado desde o início da execução. Um frame com falso positivo podia, portanto, contaminar permanentemente o resultado.
-
-A versão atual mantém uma janela temporal e usa a **mediana das últimas detecções**, produzindo uma leitura mais estável.
-
-Também foram corrigidos:
-
-- abertura e liberação da câmera;
-- referência inválida a `cap` em `teste03.py`;
-- captura duplicada em `teste03.py`;
-- enumeração de câmeras;
-- caminhos absolutos de Windows no conversor;
-- funções duplicadas no conversor;
-- parâmetros fixos expostos agora pela linha de comando;
-- avaliação simples de foco antes da contagem;
-- organização do código em módulos reutilizáveis.
-
-## Dataset
-
-O repositório já possui imagens de treino/teste e anotações LabelMe com a classe `hemacia`. Esse material pode ser usado em uma próxima etapa para comparar:
-
-1. Hough Circles;
-2. segmentação clássica com watershed;
-3. segmentação supervisionada (por exemplo, YOLO Segmentation).
-
-A separação de treino, validação e teste deve ser feita por campo/imagem de origem para evitar vazamento de dados.
-
-## Avaliação contra contagem manual
-
-Foi adicionada a ferramenta `tools/evaluate_counts.py`. Prepare um CSV:
-
-```csv
-image,manual_count
-campo01.jpg,47
-campo02.jpg,51
-```
-
-Execute:
-
-```bash
-python tools/evaluate_counts.py referencia.csv --method watershed
-```
-
-Ela calcula MAE, erro percentual médio (quando aplicável), viés médio e grava resultados detalhados em CSV.
-
-## Próximos passos recomendados
-
-- calibração por câmera/microscópio;
-- ajuste/validação do watershed em campos reais;
-- conversão das anotações LabelMe para dataset de segmentação;
-- conversão das anotações LabelMe para formato de treinamento;
-- métricas MAE, erro percentual, precisão, recall e F1;
-- interface gráfica e exportação de resultados.
-
-## Licença
-
-Defina uma licença antes de distribuir ou reutilizar o projeto externamente.
-
-
-## Segmentação supervisionada (YOLO)
-
-O projeto agora possui um terceiro método de análise baseado em segmentação supervisionada.
-
-### 1. Converter as anotações LabelMe
-
-```bash
-python tools/labelme_to_yolo_seg.py
-```
-
-O conversor cria:
-
-```text
-datasets/hemacias_seg/
-├── dataset.yaml
-├── images/
-│   ├── train/
-│   ├── val/
-│   └── test/
-└── labels/
-    ├── train/
-    ├── val/
-    └── test/
-```
-
-O conversor prioriza a imagem com o mesmo nome do JSON porque existem anotações antigas cujo campo `imagePath` pode não corresponder ao arquivo real.
-
-### 2. Instalar dependências de IA
+Para usar o método YOLO, instale também as dependências de IA:
 
 ```bash
 pip install -r requirements-ml.txt
 ```
 
-### 3. Treinar
+Uso básico:
 
 ```bash
-python tools/train_yolo_seg.py \
-  --data datasets/hemacias_seg/dataset.yaml \
-  --epochs 100 \
-  --imgsz 640
+python teste04.py --list-videos          # lista as câmeras
+python teste04.py                        # câmera padrão, método watershed
+python teste04.py --index 1              # outra câmera
+python teste04.py --method hough         # método anterior, para comparação
+python teste04.py --method yolo --model models/blood-cell-bccd-yolov8s.pt
 ```
 
-A documentação atual do Ultralytics recomenda usar um modelo de segmentação pré-treinado para iniciar o treino de um dataset customizado. O script usa `yolo26n-seg.pt` como padrão.
+Durante a execução: `Q` encerra, `C` limpa o histórico da contagem estabilizada e `S` envia o quadro e a contagem ao gerenciador web, quando a API está configurada. Todas as opções estão no [Guia técnico](docs/GUIA_TECNICO.md#contador-em-tempo-real).
 
-### 4. Usar o modelo treinado
+### 3. Gerenciador web
 
-Depois do treinamento, use o `best.pt`:
+Requer PHP 8.1 ou superior e MySQL.
 
-```bash
-python teste04.py \
-  --method yolo \
-  --model runs/hemacias/seg/weights/best.pt
-```
+1. Copie `web/config.example.php` para `web/config.php`.
+2. Preencha as credenciais do banco, a `api_key` e a `install_key`.
+3. Dê permissão de escrita a `web/uploads/`.
+4. Abra `install.php` no navegador, clique em **Instalar Banco Automaticamente** e crie o primeiro administrador.
+5. Entre por `index.php`.
 
-Com o gerenciador web:
+Detalhes em [`web/README.md`](web/README.md) e no [capítulo do painel web no manual](docs/MANUAL_USUARIO.md#11-gerenciador-web).
 
-```bash
-python teste04.py \
-  --method yolo \
-  --model runs/hemacias/seg/weights/best.pt \
-  --api-url https://servidor/hemacias/web \
-  --api-key SUA_CHAVE \
-  --patient-name "Paciente de teste" \
-  --sample-code AMOSTRA-001
-```
-
-Cada previsão registra classe, confiança, caixa delimitadora e polígono da máscara quando disponível.
-
-> O modelo treinado deve ser validado em uma base separada antes de qualquer uso laboratorial.
-
-
-## Contagem multiclasse de componentes sanguíneos
-
-O método `yolo` não filtra mais somente hemácias. Todas as classes previstas pelo modelo treinado são preservadas e agrupadas.
-
-Exemplo de resultado:
+## Estrutura do repositório
 
 ```text
-hemacia: 132
-leucocito: 4
-plaqueta: 27
-artefato: 3
+hemacias/
+├── README.md                 esta página
+├── teste04.py                contador em tempo real (aplicação principal em Python)
+├── teste03.py                experimento antigo, mantido para comparação
+├── requirements.txt          dependências básicas (OpenCV, NumPy, Pillow)
+├── requirements-ml.txt       dependências de IA (Ultralytics/YOLO)
+├── instalar_dependencias.bat instalador das dependências Python no Windows
+├── installer_v1.0.iss        roteiros Inno Setup dos instaladores
+├── installer_v1.2.iss
+├── bin/                      instaladores prontos do Hemácias Analyzer
+├── hemacias/                 núcleo Python
+│   ├── camera.py             descoberta e abertura de câmeras
+│   ├── counter.py            método Hough, foco e estabilização da contagem
+│   ├── watershed.py          segmentação clássica com watershed
+│   ├── yolo_counter.py       contagem multiclasse com YOLO
+│   ├── quality.py            controle de qualidade da imagem
+│   └── api_client.py         cliente da API do gerenciador web
+├── python/
+│   ├── camera_capture.py     listagem e captura de câmeras por linha de comando
+│   └── tools/converte/       conversor de imagens do dataset
+├── lazarus/hemacias_analyzer/  código-fonte do aplicativo de mesa
+├── web/                      gerenciador PHP/MySQL e API
+├── tools/                    conversão, treino, auditoria e avaliação
+├── models/                   modelos YOLO
+├── esfregaco/                imagens de esfregaço para teste
+├── fotos/                    recortes de células e anotações LabelMe
+├── datasets/                 destino dos datasets convertidos (vazio no repositório)
+├── tests/                    testes do núcleo
+└── docs/                     manual, guia técnico, plano e fotos
 ```
 
-Cada classe é enviada como um `count_component` separado, com:
+## Modelos incluídos
 
-- quantidade;
-- confiança média;
-- detecções individuais;
-- bounding box;
-- polígono da máscara;
-- contagem estabilizada daquela classe.
+| Arquivo | Tarefa | Classes | Indicação |
+|---|---|---|---|
+| `blood-cell-bccd-yolov8n.pt` | Detecção | RBC, WBC, Platelets | Leve, para computador sem placa de vídeo |
+| `blood-cell-bccd-yolov8s.pt` | Detecção | RBC, WBC, Platelets | Equilíbrio entre velocidade e sensibilidade |
+| `blood-cell-bccd-yolov8m.pt` | Detecção | RBC, WBC, Platelets | Maior, para campos com muitas células |
+| `blood-seg-v1.pt` (igual a `best.pt`) | Segmentação | hemacia | Treinado com as anotações do próprio projeto |
 
-Hough e Watershed permanecem hemácia-only para comparação com o pipeline clássico.
+Os demais arquivos `yolo11*` e `yolov8*-seg` são modelos-base da Ultralytics, usados como ponto de partida de treinamento. As métricas e a origem de cada modelo estão em [`models/README.md`](models/README.md).
 
-### Avaliação multiclasse
+## Dataset
 
-O CSV de referência pode usar a coluna `class`:
+O repositório traz recortes de células em `fotos/`, com anotações LabelMe da classe `hemacia` em `fotos/positivas cinza treino/`. Hoje só esse conjunto tem rótulos utilizáveis para treino; os conjuntos de teste e as imagens coloridas ainda não têm anotação. A situação detalhada está em [`docs/DATASET_AUDIT.md`](docs/DATASET_AUDIT.md), e o caminho para converter, verificar e treinar está no [Guia técnico](docs/GUIA_TECNICO.md#segmentação-supervisionada-com-yolo).
 
-```csv
-image,class,manual_count
-campo01.jpg,hemacia,132
-campo01.jpg,leucocito,4
-campo01.jpg,plaqueta,27
-campo02.jpg,hemacia,141
-```
+## Testes
 
-Execute:
+Os testes do núcleo ficam em `tests/` e usam o pytest:
 
 ```bash
-python tools/evaluate_counts.py referencia_multiclasse.csv \
-  --method yolo \
-  --model runs/hemacias/seg/weights/best.pt
+pip install pytest
+python -m pytest tests
 ```
 
-A ferramenta mostra MAE, viés e MAPE geral e por classe.
+## Situação atual e limites
 
+- Os métodos Hough e Watershed contam apenas hemácias. O método YOLO conta todas as classes que o modelo conhece.
+- O controle de qualidade recusa imagens fora de foco, muito escuras, muito claras ou com iluminação desigual, em vez de contar em silêncio.
+- A escala em µm depende da calibração de cada conjunto de microscópio, objetiva e câmera.
+- O coeficiente de variação do diâmetro, medido na imagem, não é o RDW do hemograma. VCM, HCM e CHCM só são calculados a partir de valores digitados de um contador hematológico externo.
+- O painel web guarda dados de pacientes. Em produção, use HTTPS, contas com o menor privilégio possível e nunca coloque dados reais no repositório.
 
-## Pipeline Blood Seg
+## Autor
 
-O treinamento multiclasse pode ser executado de forma reproduzível com:
+Marcelo Maurin Martins — [maurinsoft.com.br](https://maurinsoft.com.br)
 
-```bash
-python tools/blood_seg_pipeline.py \
-  --version v1 \
-  --dataset-ref dataset-2026-09-19-v1 \
-  --data datasets/hemacias_seg/dataset.yaml \
-  --api-url https://servidor/hemacias/web \
-  --api-key SUA_CHAVE \
-  --epochs 100 \
-  --imgsz 1024 \
-  --batch 8 \
-  --device 0 \
-  --reference-csv referencia_multiclasse.csv
-```
+O aplicativo de mesa usa os componentes de IA para Lazarus do repositório [`marcelomaurin/CHATGPT`](https://github.com/marcelomaurin/CHATGPT).
 
-O pipeline:
+## Licença
 
-1. valida a existência de labels de treino e validação;
-2. treina o YOLO Segmentation;
-3. localiza `best.pt`;
-4. calcula SHA-256;
-5. registra `Blood Seg <versão>` como `VALIDACAO`;
-6. publica métricas globais de segmentação retornadas pelo Ultralytics;
-7. quando `--reference-csv` é fornecido, executa a comparação de contagem manual x automática;
-8. publica MAE, viés e MAPE global e por componente;
-9. mantém o modelo em `VALIDACAO` até aprovação explícita no gerenciador.
-
-O script não promove automaticamente um modelo para `APROVADO`.
-
-
-## Prontidão científica do dataset
-
-Antes do treinamento, execute:
-
-```bash
-python tools/check_yolo_dataset.py datasets/hemacias_seg/dataset.yaml --strict
-```
-
-A verificação cobre:
-
-- presença de TRAIN, VAL e TEST;
-- labels sem imagem;
-- imagens sem label, sinalizadas para confirmar negativos intencionais;
-- formato das segmentações YOLO;
-- cobertura das classes em validação e teste;
-- presença de `manifest.json`;
-- proveniência do split;
-- agrupamento por paciente no modo estrito.
-
-O `tools/blood_seg_pipeline.py` executa essa verificação automaticamente antes de iniciar o treinamento. Para datasets legados sem proveniência, existe `--allow-untracked-dataset`, destinado somente a experimentação.
-
-Para reconstruir um dataset LabelMe local sem resíduos de uma conversão anterior:
-
-```bash
-python tools/labelme_to_yolo_seg.py --clean
-```
-
-
-## Aplicação Lazarus para análise de lâminas
-
-Foi adicionada uma aplicação desktop em:
-
-```text
-lazarus/hemacias_analyzer/
-```
-
-Ela usa a biblioteca `marcelomaurin/CHATGPT` por meio de:
-
-- `TPythonConnector`;
-- `TYOLO`;
-- `TCHATGPT`.
-
-A aplicação carrega uma imagem individual de lâmina, executa o modelo YOLO configurado, conta objetos por classe, desenha as detecções, calcula confiança média e emite resultados em JSON, CSV ou TXT. O `TCHATGPT` é opcional e recebe apenas os resultados numéricos para redigir um resumo técnico; ele não realiza a contagem.
-
-
-## Validação automática contra ground truth revisado
-
-Depois que imagens analisadas forem revisadas manualmente e marcadas como `REVISADA` ou `APROVADA`, o modelo pode ser validado diretamente contra esse ground truth:
-
-```bash
-python tools/evaluate_reviewed_annotations.py \
-  --api-url https://servidor/hemacias/web \
-  --api-key SUA_CHAVE \
-  --model-id 1 \
-  --iou 0.50 \
-  --json-output runs/validation/blood-seg-v1.json
-```
-
-É possível definir IoU diferente por classe:
-
-```bash
-python tools/evaluate_reviewed_annotations.py \
-  --api-url https://servidor/hemacias/web \
-  --api-key SUA_CHAVE \
-  --model-id 1 \
-  --iou 0.50 \
-  --class-iou hemacia=0.50 \
-  --class-iou leucocito=0.55 \
-  --class-iou plaqueta=0.40
-```
-
-O avaliador:
-
-1. busca somente imagens ligadas ao modelo e com ground truth manual aprovado;
-2. separa objetos por classe;
-3. calcula IoU poligonal real;
-4. faz matching guloso do maior IoU para o menor dentro da mesma classe;
-5. calcula TP, FP, FN, precision, recall e F1;
-6. calcula MAE, viés e MAPE de contagem por imagem/classe;
-7. publica métricas gerais e por classe em `ai_model_metrics`;
-8. registra a rodada completa em `ai_model_validation_runs`.
-
-Use `--no-publish` para executar somente a análise local sem alterar o registro do modelo.
-
-Para banco existente, execute também:
-
-```sql
-web/migrations/009_model_validation_runs.sql
-```
-
-As métricas publicadas por essa ferramenta representam **validação contra ground truth humano revisado**, e não as métricas internas do conjunto de validação usadas durante o treinamento.
+O projeto ainda não tem licença definida. Defina uma antes de distribuir ou reutilizar o código fora do projeto.
